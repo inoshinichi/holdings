@@ -11,6 +11,47 @@ import { useParams } from 'next/navigation'
 import type { Application } from '@/types/database'
 import { Paperclip, Trash2, FileText, Image as ImageIcon, AlertCircle, CheckCircle2 } from 'lucide-react'
 
+const CONTENT_KEY_LABELS: Record<string, string> = {
+  memberId: '会員ID',
+  eventDate: 'イベント日',
+  isRemarriage: '再婚',
+  isForChild: '子の結婚',
+  childCount: '出産人数',
+  isStillbirth: '死産',
+  schoolType: '学校種別',
+  absenceDays: '欠勤日数',
+  standardMonthlyRemuneration: '標準報酬月額',
+  damageLevel: '被害程度',
+  isOwnHouse: '持ち家',
+  isHeadOfHousehold: '世帯主',
+  relationship: '続柄',
+  isChiefMourner: '喪主',
+  withdrawalDate: '脱会日',
+}
+
+const CONTENT_VALUE_LABELS: Record<string, Record<string, string>> = {
+  damageLevel: {
+    TOTAL_LOSS: '全焼・全壊',
+    HALF_BURN: '半焼',
+    HALF_DAMAGE: '半壊',
+  },
+  relationship: {
+    MEMBER: '会員本人',
+    SPOUSE: '配偶者',
+    PARENT: '親',
+    CHILD: '子',
+    GRANDPARENT_SIBLING: '祖父母・兄弟姉妹',
+  },
+}
+
+function formatContentValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return '-'
+  if (typeof value === 'boolean') return value ? 'はい' : 'いいえ'
+  const valMap = CONTENT_VALUE_LABELS[key]
+  if (valMap && typeof value === 'string' && valMap[value]) return valMap[value]
+  return String(value)
+}
+
 export default function ApplicationDetailPage() {
   const params = useParams()
   const applicationId = params.applicationId as string
@@ -214,14 +255,16 @@ export default function ApplicationDetailPage() {
       </div>
 
       {/* 申請内容（JSONB） */}
-      {content && Object.keys(content).length > 0 && (
+      {content && Object.keys(content).filter(k => k !== 'memberId').length > 0 && (
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">申請内容詳細</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {Object.entries(content).map(([key, value]) => (
+            {Object.entries(content)
+              .filter(([key]) => key !== 'memberId')
+              .map(([key, value]) => (
               <div key={key}>
-                <p className="text-sm text-gray-500">{key}</p>
-                <p className="font-medium">{String(value ?? '-')}</p>
+                <p className="text-sm text-gray-500">{CONTENT_KEY_LABELS[key] ?? key}</p>
+                <p className="font-medium">{formatContentValue(key, value)}</p>
               </div>
             ))}
           </div>

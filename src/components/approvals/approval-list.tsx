@@ -230,6 +230,12 @@ export function ApprovalList({
                   </td>
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-2">
+                      <a
+                        href={`/applications/${app.application_id}`}
+                        className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition"
+                      >
+                        詳細
+                      </a>
                       <button
                         onClick={() => openApproveDialog(app, activeTab)}
                         className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded transition"
