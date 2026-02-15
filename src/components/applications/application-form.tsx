@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useTransition } from 'react'
+import { useState, useEffect, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createApplication } from '@/lib/actions/applications'
 import { getMember } from '@/lib/actions/members'
@@ -337,8 +337,7 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
   const [simulationResult, setSimulationResult] = useState<BenefitCalculationResult | null>(null)
   const [simulationError, setSimulationError] = useState('')
 
-  // Attachments (staged files before explicit attach)
-  const [stagedFiles, setStagedFiles] = useState<File[]>([])
+  // Attachments
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [fileError, setFileError] = useState('')
 
@@ -434,14 +433,17 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
     }
   }
 
-  // -- File selection --
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+  // -- File attachment --
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files
     if (!files || files.length === 0) return
     setFileError('')
 
     const MAX_SIZE = 5 * 1024 * 1024
     const ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'pdf']
+    const validFiles: File[] = []
 
     for (const file of Array.from(files)) {
       if (file.size > MAX_SIZE) {
@@ -455,21 +457,11 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
         e.target.value = ''
         return
       }
+      validFiles.push(file)
     }
 
-    setStagedFiles(prev => [...prev, ...Array.from(files)])
+    setSelectedFiles(prev => [...prev, ...validFiles])
     e.target.value = ''
-  }
-
-  function removeStagedFile(index: number) {
-    setStagedFiles(prev => prev.filter((_, i) => i !== index))
-  }
-
-  function handleAttach() {
-    if (stagedFiles.length === 0) return
-    setSelectedFiles(prev => [...prev, ...stagedFiles])
-    setStagedFiles([])
-    setFileError('')
   }
 
   function removeFile(index: number) {
@@ -569,7 +561,6 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
               setBenefitTypeCode('')
               setCalcParams({ memberId: '' })
               setSelectedFiles([])
-              setStagedFiles([])
             }}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
           >
@@ -764,30 +755,25 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
         </h3>
         <p className="text-xs text-gray-500 mb-4">対応形式: JPG, PNG, PDF（各ファイル最大5MB）</p>
 
-        {/* File picker + attach button */}
-        <div className="flex items-center gap-3">
-          <label className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition cursor-pointer">
-            <Paperclip className="w-4 h-4" />
-            ファイルを選択
-            <input
-              type="file"
-              accept=".jpg,.jpeg,.png,.pdf"
-              multiple
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-          </label>
-          {stagedFiles.length > 0 && (
-            <button
-              type="button"
-              onClick={handleAttach}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition"
-            >
-              <Paperclip className="w-4 h-4" />
-              添付する（{stagedFiles.length}件）
-            </button>
-          )}
-        </div>
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".jpg,.jpeg,.png,.pdf"
+          multiple
+          onChange={handleFileChange}
+          className="hidden"
+        />
+
+        {/* 添付するボタン */}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition"
+        >
+          <Paperclip className="w-4 h-4" />
+          添付する
+        </button>
 
         {fileError && (
           <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
@@ -796,41 +782,12 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
           </p>
         )}
 
-        {/* Staged files (not yet attached) */}
-        {stagedFiles.length > 0 && (
-          <div className="mt-3 space-y-2">
-            <p className="text-xs font-medium text-gray-500">選択中のファイル:</p>
-            {stagedFiles.map((file, idx) => (
-              <div
-                key={`staged-${file.name}-${idx}`}
-                className="flex items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-white p-3"
-              >
-                {isImage(file.name) ? (
-                  <ImageIcon className="w-5 h-5 text-blue-500 shrink-0" />
-                ) : (
-                  <FileText className="w-5 h-5 text-red-500 shrink-0" />
-                )}
-                <span className="flex-1 text-sm text-gray-700 truncate">{file.name}</span>
-                <span className="text-xs text-gray-400">{(file.size / 1024).toFixed(0)} KB</span>
-                <button
-                  type="button"
-                  onClick={() => removeStagedFile(idx)}
-                  className="text-gray-400 hover:text-red-600 transition"
-                  title="削除"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Attached files (confirmed) */}
+        {/* Attached files */}
         {selectedFiles.length > 0 && (
           <div className="mt-3 space-y-2">
             <p className="text-xs font-medium text-green-600 flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3" />
-              添付済みファイル（{selectedFiles.length}件）:
+              添付済み（{selectedFiles.length}件）
             </p>
             {selectedFiles.map((file, idx) => (
               <div
