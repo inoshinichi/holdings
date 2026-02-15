@@ -95,6 +95,7 @@ export default function LoginPage() {
             会員マイページはこちら
           </a>
         </div>
+        <p className="mt-2 text-xs text-gray-400 break-all">DEBUG URL: [{process.env.NEXT_PUBLIC_SUPABASE_URL}]</p>
       </div>
     </div>
   )
