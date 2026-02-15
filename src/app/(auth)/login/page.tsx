@@ -23,7 +23,7 @@ export default function LoginPage() {
     })
 
     if (error) {
-      setError('メールアドレスまたはパスワードが正しくありません')
+      setError(`ログインエラー: ${error.message}`)
       setLoading(false)
       return
     }
