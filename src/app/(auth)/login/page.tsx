@@ -96,6 +96,7 @@ export default function LoginPage() {
           </a>
         </div>
         <p className="mt-2 text-xs text-gray-400 break-all">DEBUG URL: [{process.env.NEXT_PUBLIC_SUPABASE_URL}]</p>
+        <p className="mt-1 text-xs text-gray-400 break-all">DEBUG KEY: [{process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice(0, 20)}...{process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice(-10)}] len={process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length}</p>
       </div>
     </div>
   )
