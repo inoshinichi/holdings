@@ -6,6 +6,7 @@ import {
   Users, CheckSquare, DollarSign, Building2,
   FileText, FilePlus, CreditCard, BarChart3
 } from 'lucide-react'
+import type { UserProfile } from '@/types/database'
 
 export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient()
@@ -23,52 +24,77 @@ export default async function DashboardPage() {
     redirect('/mypage')
   }
 
-  const { count: memberCount } = await supabase
+  const typedProfile = profile as Pick<UserProfile, 'role' | 'company_code'> | null
+  const isApprover = typedProfile?.role === 'approver'
+  const companyCode = isApprover ? (typedProfile?.company_code ?? undefined) : undefined
+
+  // Build queries with optional company scope
+  let memberQuery = supabase
     .from('members')
     .select('*', { count: 'exact', head: true })
     .eq('employment_status', '在職中')
+  if (companyCode) memberQuery = memberQuery.eq('company_code', companyCode)
 
-  const { count: pendingCount } = await supabase
+  let pendingQuery = supabase
     .from('applications')
     .select('*', { count: 'exact', head: true })
     .in('status', ['PENDING', 'COMPANY_APPROVED'])
+  if (companyCode) pendingQuery = pendingQuery.eq('company_code', companyCode)
 
-  const { count: companyCount } = await supabase
-    .from('companies')
-    .select('*', { count: 'exact', head: true })
-    .eq('is_active', true)
+  const { count: memberCount } = await memberQuery
+  const { count: pendingCount } = await pendingQuery
 
   const now = new Date()
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-  const { data: paidApps } = await supabase
+
+  let paidQuery = supabase
     .from('applications')
     .select('final_amount')
     .eq('status', 'PAID')
     .gte('payment_completed_date', monthStart)
+  if (companyCode) paidQuery = paidQuery.eq('company_code', companyCode)
 
+  const { data: paidApps } = await paidQuery
   const monthlyBenefit = paidApps?.reduce((sum, a) => sum + (a.final_amount || 0), 0) ?? 0
 
-  const stats = [
-    { label: '会員数', value: String(memberCount ?? 0), icon: Users, color: 'text-blue-600 bg-blue-50', href: '/members' },
-    { label: '承認待ち', value: String(pendingCount ?? 0), icon: CheckSquare, color: 'text-yellow-600 bg-yellow-50', href: '/approvals' },
-    { label: '今月給付金', value: formatCurrency(monthlyBenefit), icon: DollarSign, color: 'text-green-600 bg-green-50', href: '/statistics' },
-    { label: '加盟会社', value: String(companyCount ?? 0), icon: Building2, color: 'text-purple-600 bg-purple-50', href: '/master' },
-  ]
+  const stats = isApprover
+    ? [
+        { label: '自社会員数', value: String(memberCount ?? 0), icon: Users, color: 'text-blue-600 bg-blue-50', href: '/members' },
+        { label: '承認待ち', value: String(pendingCount ?? 0), icon: CheckSquare, color: 'text-yellow-600 bg-yellow-50', href: '/approvals' },
+        { label: '今月給付金', value: formatCurrency(monthlyBenefit), icon: DollarSign, color: 'text-green-600 bg-green-50', href: '/statistics' },
+      ]
+    : [
+        { label: '会員数', value: String(memberCount ?? 0), icon: Users, color: 'text-blue-600 bg-blue-50', href: '/members' },
+        { label: '承認待ち', value: String(pendingCount ?? 0), icon: CheckSquare, color: 'text-yellow-600 bg-yellow-50', href: '/approvals' },
+        { label: '今月給付金', value: formatCurrency(monthlyBenefit), icon: DollarSign, color: 'text-green-600 bg-green-50', href: '/statistics' },
+        { label: '加盟会社', value: '', icon: Building2, color: 'text-purple-600 bg-purple-50', href: '/master' },
+      ]
+
+  // For admin, fetch company count
+  if (!isApprover) {
+    const { count: companyCount } = await supabase
+      .from('companies')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_active', true)
+    const companyStat = stats.find(s => s.label === '加盟会社')
+    if (companyStat) companyStat.value = String(companyCount ?? 0)
+  }
 
   const quickLinks = [
     { href: '/applications', label: '申請一覧', icon: FileText, roles: ['admin', 'approver'] },
     { href: '/applications/new', label: '新規申請', icon: FilePlus, roles: ['admin', 'approver'] },
     { href: '/approvals', label: '承認待ち', icon: CheckSquare, roles: ['admin', 'approver'] },
+    { href: '/members', label: '会員一覧', icon: Users, roles: ['admin', 'approver'] },
+    { href: '/statistics', label: '給付金統計', icon: BarChart3, roles: ['admin', 'approver'] },
     { href: '/payments', label: '支払管理', icon: CreditCard, roles: ['admin'] },
-    { href: '/statistics', label: '給付金統計', icon: BarChart3, roles: ['admin'] },
     { href: '/mypage', label: 'マイページ', icon: Users, roles: ['member'] },
-  ].filter(link => link.roles.includes(profile?.role ?? 'member'))
+  ].filter(link => link.roles.includes(typedProfile?.role ?? 'member'))
 
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-gray-800">ダッシュボード</h2>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${isApprover ? 'lg:grid-cols-3' : 'lg:grid-cols-4'} gap-4`}>
         {stats.map(stat => {
           const Icon = stat.icon
           return (

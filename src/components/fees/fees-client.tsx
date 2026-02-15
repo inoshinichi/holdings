@@ -25,6 +25,7 @@ interface FeesClientProps {
   fees: MonthlyFee[]
   summary: FeeSummary
   currentYearMonth: string
+  readOnly?: boolean
 }
 
 const FEE_STATUS_COLORS: Record<string, string> = {
@@ -38,7 +39,7 @@ function getFeeStatusColor(status: string): string {
   return FEE_STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-700'
 }
 
-export function FeesClient({ fees, summary, currentYearMonth }: FeesClientProps) {
+export function FeesClient({ fees, summary, currentYearMonth, readOnly }: FeesClientProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [yearMonth, setYearMonth] = useState(currentYearMonth)
@@ -176,24 +177,26 @@ export function FeesClient({ fees, summary, currentYearMonth }: FeesClientProps)
             className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
-        <div className="flex items-end gap-2">
-          <button
-            onClick={handleGenerate}
-            disabled={isPending}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition disabled:opacity-50"
-          >
-            {isPending ? '処理中...' : '会費データ生成'}
-          </button>
-          {selectedIds.size > 0 && (
+        {!readOnly && (
+          <div className="flex items-end gap-2">
             <button
-              onClick={handleMarkInvoiced}
+              onClick={handleGenerate}
               disabled={isPending}
-              className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded transition disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition disabled:opacity-50"
             >
-              請求済にする ({selectedIds.size}件)
+              {isPending ? '処理中...' : '会費データ生成'}
             </button>
-          )}
-        </div>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleMarkInvoiced}
+                disabled={isPending}
+                className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded transition disabled:opacity-50"
+              >
+                請求済にする ({selectedIds.size}件)
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Inline message */}
@@ -228,15 +231,17 @@ export function FeesClient({ fees, summary, currentYearMonth }: FeesClientProps)
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-4 py-3 text-center w-10">
-                  <input
-                    type="checkbox"
-                    checked={allInvoiceableSelected}
-                    onChange={toggleSelectAll}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    title="未請求を全て選択"
-                  />
-                </th>
+                {!readOnly && (
+                  <th className="px-4 py-3 text-center w-10">
+                    <input
+                      type="checkbox"
+                      checked={allInvoiceableSelected}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      title="未請求を全て選択"
+                    />
+                  </th>
+                )}
                 <th className="text-left px-4 py-3 font-medium text-gray-600">会社名</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">会員数</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">一般</th>
@@ -246,7 +251,7 @@ export function FeesClient({ fees, summary, currentYearMonth }: FeesClientProps)
                 <th className="text-right px-4 py-3 font-medium text-gray-600">合計金額</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">入金額</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">ステータス</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">アクション</th>
+                {!readOnly && <th className="text-center px-4 py-3 font-medium text-gray-600">アクション</th>}
               </tr>
             </thead>
             <tbody>
@@ -257,18 +262,20 @@ export function FeesClient({ fees, summary, currentYearMonth }: FeesClientProps)
                     key={fee.id}
                     className="border-b border-gray-100 hover:bg-gray-50"
                   >
-                    <td className="px-4 py-3 text-center">
-                      {isInvoiceable ? (
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(fee.id)}
-                          onChange={() => toggleSelect(fee.id)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
+                    {!readOnly && (
+                      <td className="px-4 py-3 text-center">
+                        {isInvoiceable ? (
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(fee.id)}
+                            onChange={() => toggleSelect(fee.id)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-gray-800 font-medium">{fee.company_name}</td>
                     <td className="px-4 py-3 text-right text-gray-700">{fee.member_count}</td>
                     <td className="px-4 py-3 text-right text-gray-700">{fee.general_count}</td>
@@ -290,25 +297,27 @@ export function FeesClient({ fees, summary, currentYearMonth }: FeesClientProps)
                         {fee.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <a
-                          href={`/api/invoice-pdf?feeId=${fee.id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition"
-                        >
-                          請求書
-                        </a>
-                        <button
-                          onClick={() => openPaymentDialog(fee)}
-                          disabled={fee.status === '入金完了'}
-                          className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          入金記録
-                        </button>
-                      </div>
-                    </td>
+                    {!readOnly && (
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <a
+                            href={`/api/invoice-pdf?feeId=${fee.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition"
+                          >
+                            請求書
+                          </a>
+                          <button
+                            onClick={() => openPaymentDialog(fee)}
+                            disabled={fee.status === '入金完了'}
+                            className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            入金記録
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 )
               })}

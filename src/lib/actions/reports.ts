@@ -212,6 +212,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 export async function getBenefitStatistics(
   startDate?: string,
   endDate?: string,
+  companyCode?: string,
 ): Promise<BenefitStatistics> {
   const supabase = await createServerSupabaseClient()
 
@@ -220,7 +221,7 @@ export async function getBenefitStatistics(
   const effectiveEnd = endDate ?? today
 
   // Fetch all PAID applications within the date range
-  const { data: rows, error } = await supabase
+  let query = supabase
     .from('applications')
     .select(
       'benefit_type_code, benefit_type_name, final_amount, payment_completed_date, company_code, company_name',
@@ -228,6 +229,12 @@ export async function getBenefitStatistics(
     .eq('status', APPLICATION_STATUS.PAID)
     .gte('payment_completed_date', effectiveStart)
     .lte('payment_completed_date', effectiveEnd)
+
+  if (companyCode) {
+    query = query.eq('company_code', companyCode)
+  }
+
+  const { data: rows, error } = await query
 
   if (error || !rows) {
     console.error('給付金統計の取得に失敗しました:', error?.message)

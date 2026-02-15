@@ -3,16 +3,18 @@
 import { useEffect, useState, useTransition } from 'react'
 import { getMember, updateMember, setMemberOnLeave, withdrawMember } from '@/lib/actions/members'
 import { getApplications } from '@/lib/actions/applications'
+import { getCurrentUser } from '@/lib/actions/auth'
 import { formatDate } from '@/lib/utils/date'
 import { formatCurrency } from '@/lib/utils/format'
 import { getStatusLabel, getStatusColor } from '@/lib/constants/application-status'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Member, Application, FeeCategory } from '@/types/database'
 import { Pencil, Save, X } from 'lucide-react'
 
 export default function MemberDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const memberId = params.memberId as string
 
   const [member, setMember] = useState<Member | null>(null)
@@ -28,7 +30,18 @@ export default function MemberDetailPage() {
 
   useEffect(() => {
     async function load() {
-      const m = await getMember(memberId)
+      // 認可チェック: approverは自社会員のみ閲覧可能
+      const userProfile = await getCurrentUser()
+      let m: Member | null = null
+      if (userProfile?.role === 'approver' && userProfile.company_code) {
+        m = await getMember(memberId, userProfile.company_code)
+        if (!m) {
+          router.replace('/members')
+          return
+        }
+      } else {
+        m = await getMember(memberId)
+      }
       if (m) {
         setMember(m)
         const apps = await getApplications({ memberId: m.member_id })
@@ -37,7 +50,7 @@ export default function MemberDetailPage() {
       setLoading(false)
     }
     load()
-  }, [memberId])
+  }, [memberId, router])
 
   function startEditing() {
     if (!member) return

@@ -266,12 +266,18 @@ export async function createApplication(
 /**
  * 申請のステータス別集計を取得する
  */
-export async function getApplicationStats(): Promise<ApplicationStats> {
+export async function getApplicationStats(companyCode?: string): Promise<ApplicationStats> {
   const supabase = await createServerSupabaseClient()
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('applications')
     .select('status')
+
+  if (companyCode) {
+    query = query.eq('company_code', companyCode)
+  }
+
+  const { data, error } = await query
 
   if (error || !data) {
     console.error('申請統計の取得に失敗しました:', error?.message)

@@ -9,17 +9,20 @@ import toast from 'react-hot-toast'
 
 interface MemberFormProps {
   companies: Company[]
+  lockedCompanyCode?: string
 }
 
-export function MemberForm({ companies }: MemberFormProps) {
+export function MemberForm({ companies, lockedCompanyCode }: MemberFormProps) {
   const [loading, setLoading] = useState(false)
   const [registeredId, setRegisteredId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   // Form fields
   const [memberId, setMemberId] = useState('')
-  const [companyCode, setCompanyCode] = useState('')
-  const [companyName, setCompanyName] = useState('')
+  const [companyCode, setCompanyCode] = useState(lockedCompanyCode ?? '')
+  const [companyName, setCompanyName] = useState(
+    lockedCompanyCode ? (companies.find(c => c.company_code === lockedCompanyCode)?.company_name ?? '') : ''
+  )
   const [lastName, setLastName] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastNameKana, setLastNameKana] = useState('')
@@ -145,8 +148,8 @@ export function MemberForm({ companies }: MemberFormProps) {
             onClick={() => {
               setRegisteredId(null)
               setMemberId('')
-              setCompanyCode('')
-              setCompanyName('')
+              setCompanyCode(lockedCompanyCode ?? '')
+              setCompanyName(lockedCompanyCode ? (companies.find(c => c.company_code === lockedCompanyCode)?.company_name ?? '') : '')
               setLastName('')
               setFirstName('')
               setLastNameKana('')
@@ -198,7 +201,8 @@ export function MemberForm({ companies }: MemberFormProps) {
               value={companyCode}
               onChange={(e) => handleCompanyChange(e.target.value)}
               required
-              className={inputCls}
+              disabled={!!lockedCompanyCode}
+              className={`${inputCls} ${lockedCompanyCode ? 'bg-gray-100' : ''}`}
             >
               <option value="">選択してください</option>
               {companies.map((c) => (

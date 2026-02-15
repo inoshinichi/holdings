@@ -1,20 +1,39 @@
 import Link from 'next/link'
 import { getApplications, getApplicationStats } from '@/lib/actions/applications'
 import { getCompanies } from '@/lib/actions/master'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { getStatusLabel, getStatusColor } from '@/lib/constants/application-status'
 import { BENEFIT_TYPE_LIST } from '@/lib/constants/benefit-types'
 import { formatCurrency } from '@/lib/utils/format'
 import { formatDate } from '@/lib/utils/date'
 import { FilePlus, FileText, CheckSquare, Building2, CircleCheck, CreditCard, XCircle } from 'lucide-react'
+import type { UserProfile } from '@/types/database'
 
 export default async function ApplicationsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>
 }) {
+  // ユーザープロフィール取得
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, company_code')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) redirect('/login')
+  const typedProfile = profile as Pick<UserProfile, 'role' | 'company_code'>
+  const isApprover = typedProfile.role === 'approver'
+
   const params = await searchParams
   const statusFilter = params.status ?? ''
-  const companyFilter = params.companyCode ?? ''
+  // approverの場合は自社に強制
+  const companyFilter = isApprover ? (typedProfile.company_code ?? '') : (params.companyCode ?? '')
   const benefitFilter = params.benefitTypeCode ?? ''
 
   const [applications, stats, companies] = await Promise.all([
@@ -23,7 +42,7 @@ export default async function ApplicationsPage({
       companyCode: companyFilter || undefined,
       benefitTypeCode: benefitFilter || undefined,
     }),
-    getApplicationStats(),
+    getApplicationStats(isApprover ? (typedProfile.company_code ?? undefined) : undefined),
     getCompanies(),
   ])
 
@@ -68,10 +87,9 @@ export default async function ApplicationsPage({
   function buildFilterUrl(overrides: Record<string, string>) {
     const merged: Record<string, string> = {}
     if (statusFilter) merged.status = statusFilter
-    if (companyFilter) merged.companyCode = companyFilter
+    if (!isApprover && companyFilter) merged.companyCode = companyFilter
     if (benefitFilter) merged.benefitTypeCode = benefitFilter
     Object.assign(merged, overrides)
-    // Remove empty values
     Object.keys(merged).forEach(k => {
       if (!merged[k]) delete merged[k]
     })
@@ -145,25 +163,27 @@ export default async function ApplicationsPage({
             </select>
           </div>
 
-          {/* Company filter */}
-          <div>
-            <label htmlFor="companyCode" className="block text-sm font-medium text-gray-700 mb-1">
-              会社
-            </label>
-            <select
-              id="companyCode"
-              name="companyCode"
-              defaultValue={companyFilter}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">すべて</option>
-              {companies.map(c => (
-                <option key={c.company_code} value={c.company_code}>
-                  {c.company_name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Company filter - approverの場合は非表示 */}
+          {!isApprover && (
+            <div>
+              <label htmlFor="companyCode" className="block text-sm font-medium text-gray-700 mb-1">
+                会社
+              </label>
+              <select
+                id="companyCode"
+                name="companyCode"
+                defaultValue={companyFilter}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">すべて</option>
+                {companies.map(c => (
+                  <option key={c.company_code} value={c.company_code}>
+                    {c.company_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Benefit type filter */}
           <div>
@@ -212,7 +232,7 @@ export default async function ApplicationsPage({
                 <th className="px-4 py-3 text-left font-medium text-gray-600">申請ID</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">申請日</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">会員名</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">会社</th>
+                {!isApprover && <th className="px-4 py-3 text-left font-medium text-gray-600">会社</th>}
                 <th className="px-4 py-3 text-left font-medium text-gray-600">給付金種別</th>
                 <th className="px-4 py-3 text-right font-medium text-gray-600">金額</th>
                 <th className="px-4 py-3 text-center font-medium text-gray-600">ステータス</th>
@@ -221,7 +241,7 @@ export default async function ApplicationsPage({
             <tbody className="divide-y divide-gray-100">
               {applications.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                  <td colSpan={isApprover ? 6 : 7} className="px-4 py-12 text-center text-gray-400">
                     該当する申請がありません
                   </td>
                 </tr>
@@ -242,9 +262,11 @@ export default async function ApplicationsPage({
                     <td className="px-4 py-3 text-gray-800 font-medium">
                       {app.member_name}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {app.company_name}
-                    </td>
+                    {!isApprover && (
+                      <td className="px-4 py-3 text-gray-600">
+                        {app.company_name}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-gray-600">
                       {app.benefit_type_name}
                     </td>

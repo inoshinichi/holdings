@@ -1,9 +1,12 @@
 import { getMembers, getMemberStats } from '@/lib/actions/members'
 import { getCompanies } from '@/lib/actions/master'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { formatDate } from '@/lib/utils/date'
 import { formatNumber } from '@/lib/utils/format'
 import Link from 'next/link'
 import { Users, UserCheck, UserMinus, Clock } from 'lucide-react'
+import type { UserProfile } from '@/types/database'
 
 const STATUS_BADGE: Record<string, string> = {
   '在職中': 'bg-green-100 text-green-700',
@@ -16,9 +19,25 @@ export default async function MembersPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>
 }) {
+  // ユーザープロフィール取得
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, company_code')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) redirect('/login')
+  const typedProfile = profile as Pick<UserProfile, 'role' | 'company_code'>
+  const isApprover = typedProfile.role === 'approver'
+
   const params = await searchParams
 
-  const companyCode = params.companyCode ?? ''
+  // approverの場合は自社のみに強制
+  const companyCode = isApprover ? (typedProfile.company_code ?? '') : (params.companyCode ?? '')
   const status = params.status ?? ''
   const feeCategory = params.feeCategory ?? ''
 
@@ -29,7 +48,7 @@ export default async function MembersPage({
 
   const [members, stats, companies] = await Promise.all([
     getMembers(Object.keys(filters).length > 0 ? filters : undefined),
-    getMemberStats(),
+    getMemberStats(isApprover ? (typedProfile.company_code ?? undefined) : undefined),
     getCompanies(),
   ])
 
@@ -39,16 +58,6 @@ export default async function MembersPage({
     { label: '休会中',   value: formatNumber(stats.onLeave),   icon: Clock,     color: 'text-yellow-600 bg-yellow-50' },
     { label: '退会',     value: formatNumber(stats.withdrawn),  icon: UserMinus, color: 'text-gray-600 bg-gray-100' },
   ]
-
-  // Build filter query string helper
-  function filterHref(overrides: Record<string, string>) {
-    const next = { companyCode, status, feeCategory, ...overrides }
-    const qs = Object.entries(next)
-      .filter(([, v]) => v)
-      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-      .join('&')
-    return `/members${qs ? `?${qs}` : ''}`
-  }
 
   return (
     <div className="space-y-6">
@@ -87,22 +96,24 @@ export default async function MembersPage({
       {/* Filters */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <form className="flex flex-wrap items-end gap-4">
-          {/* Company filter */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-gray-600">会社</label>
-            <select
-              name="companyCode"
-              defaultValue={companyCode}
-              className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">すべて</option>
-              {companies.map((c) => (
-                <option key={c.company_code} value={c.company_code}>
-                  {c.company_name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Company filter - approverの場合は非表示 */}
+          {!isApprover && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-600">会社</label>
+              <select
+                name="companyCode"
+                defaultValue={companyCode}
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">すべて</option>
+                {companies.map((c) => (
+                  <option key={c.company_code} value={c.company_code}>
+                    {c.company_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Status filter */}
           <div className="flex flex-col gap-1">
@@ -143,7 +154,7 @@ export default async function MembersPage({
           </button>
 
           {/* Clear */}
-          {(companyCode || status || feeCategory) && (
+          {((!isApprover && companyCode) || status || feeCategory) && (
             <Link
               href="/members"
               className="px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-md hover:bg-gray-50 transition"
@@ -162,7 +173,7 @@ export default async function MembersPage({
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-4 py-3 font-medium text-gray-600">会員ID</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">氏名</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">会社</th>
+                {!isApprover && <th className="text-left px-4 py-3 font-medium text-gray-600">会社</th>}
                 <th className="text-left px-4 py-3 font-medium text-gray-600">在職状況</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">会費区分</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">入会日</th>
@@ -171,7 +182,7 @@ export default async function MembersPage({
             <tbody className="divide-y divide-gray-100">
               {members.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={isApprover ? 5 : 6} className="px-4 py-8 text-center text-gray-400">
                     該当する会員が見つかりません
                   </td>
                 </tr>
@@ -192,9 +203,11 @@ export default async function MembersPage({
                     <td className="px-4 py-3 text-gray-800">
                       {member.last_name} {member.first_name}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {member.company_name}
-                    </td>
+                    {!isApprover && (
+                      <td className="px-4 py-3 text-gray-600">
+                        {member.company_name}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <span
                         className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${

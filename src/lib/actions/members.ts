@@ -104,14 +104,19 @@ export async function getMembers(
 /**
  * 単一会員を取得する
  */
-export async function getMember(memberId: string): Promise<Member | null> {
+export async function getMember(memberId: string, companyCode?: string): Promise<Member | null> {
   const supabase = await createServerSupabaseClient()
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('members')
     .select('*')
     .eq('member_id', memberId)
-    .single()
+
+  if (companyCode) {
+    query = query.eq('company_code', companyCode)
+  }
+
+  const { data, error } = await query.single()
 
   if (error) {
     console.error('getMember error:', error.message)
@@ -311,25 +316,23 @@ export async function withdrawMember(
 /**
  * 会員統計を取得する
  */
-export async function getMemberStats(): Promise<MemberStats> {
+export async function getMemberStats(companyCode?: string): Promise<MemberStats> {
   const supabase = await createServerSupabaseClient()
 
+  let totalQ = supabase.from('members').select('*', { count: 'exact', head: true })
+  let activeQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '在職中')
+  let onLeaveQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '休会中')
+  let withdrawnQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '退会')
+
+  if (companyCode) {
+    totalQ = totalQ.eq('company_code', companyCode)
+    activeQ = activeQ.eq('company_code', companyCode)
+    onLeaveQ = onLeaveQ.eq('company_code', companyCode)
+    withdrawnQ = withdrawnQ.eq('company_code', companyCode)
+  }
+
   const [totalResult, activeResult, onLeaveResult, withdrawnResult] =
-    await Promise.all([
-      supabase.from('members').select('*', { count: 'exact', head: true }),
-      supabase
-        .from('members')
-        .select('*', { count: 'exact', head: true })
-        .eq('employment_status', '在職中'),
-      supabase
-        .from('members')
-        .select('*', { count: 'exact', head: true })
-        .eq('employment_status', '休会中'),
-      supabase
-        .from('members')
-        .select('*', { count: 'exact', head: true })
-        .eq('employment_status', '退会'),
-    ])
+    await Promise.all([totalQ, activeQ, onLeaveQ, withdrawnQ])
 
   return {
     total: totalResult.count ?? 0,

@@ -294,7 +294,7 @@ function FarewellFields({
 // Main form component
 // ---------------------------------------------------------------------------
 
-export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
+export function ApplicationForm({ selfMemberId, approverCompanyCode }: { selfMemberId?: string; approverCompanyCode?: string }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
@@ -356,7 +356,7 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
     setMember(null)
     setMemberLoading(true)
     try {
-      const found = await getMember(trimmed)
+      const found = await getMember(trimmed, approverCompanyCode)
       if (found) {
         setMember(found)
         setCalcParams(prev => ({
@@ -365,7 +365,7 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
           standardMonthlyRemuneration: found.standard_monthly_remuneration ?? undefined,
         }))
       } else {
-        setMemberError('会員が見つかりません')
+        setMemberError(approverCompanyCode ? '自社の会員が見つかりません' : '会員が見つかりません')
       }
     } catch {
       setMemberError('会員の検索に失敗しました')

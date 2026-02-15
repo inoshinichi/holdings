@@ -36,12 +36,14 @@ interface Props {
   initialData: BenefitStatistics
   initialStartDate: string
   initialEndDate: string
+  companyCode?: string
 }
 
 export function StatisticsClient({
   initialData,
   initialStartDate,
   initialEndDate,
+  companyCode,
 }: Props) {
   const router = useRouter()
   const [startDate, setStartDate] = useState(initialStartDate)
@@ -56,6 +58,9 @@ export function StatisticsClient({
     if (endDate) params.set('endDate', endDate)
     router.push(`/statistics?${params.toString()}`)
   }
+
+  // approverの場合は「会社別」セクションは自社のみなので非表示
+  const showCompanyTable = !companyCode
 
   // ------- Custom tooltip for chart -------
   const CustomTooltip = ({
@@ -253,7 +258,7 @@ export function StatisticsClient({
       </div>
 
       {/* Company table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      {showCompanyTable && <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200">
           <h3 className="text-base font-semibold text-gray-700">会社別</h3>
         </div>
@@ -309,7 +314,7 @@ export function StatisticsClient({
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
     </div>
   )
 }

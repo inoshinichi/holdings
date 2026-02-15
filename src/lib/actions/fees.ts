@@ -270,7 +270,7 @@ export async function markFeesAsInvoiced(
 // ---------------------------------------------------------------------------
 // 5. getFeeSummary – 月次会費サマリ
 // ---------------------------------------------------------------------------
-export async function getFeeSummary(yearMonth: string): Promise<{
+export async function getFeeSummary(yearMonth: string, companyCode?: string): Promise<{
   yearMonth: string
   totalCompanies: number
   totalMembers: number
@@ -282,10 +282,16 @@ export async function getFeeSummary(yearMonth: string): Promise<{
 }> {
   const supabase = await createServerSupabaseClient()
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('monthly_fees')
     .select('*')
     .eq('year_month', yearMonth)
+
+  if (companyCode) {
+    query = query.eq('company_code', companyCode)
+  }
+
+  const { data, error } = await query
 
   if (error || !data) {
     return {

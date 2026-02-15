@@ -9,15 +9,19 @@ export default async function NewApplicationPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   let selfMemberId: string | undefined
+  let approverCompanyCode: string | undefined
   if (user) {
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role, member_id')
+      .select('role, member_id, company_code')
       .eq('id', user.id)
       .single()
-    const typedProfile = profile as Pick<UserProfile, 'role' | 'member_id'> | null
+    const typedProfile = profile as Pick<UserProfile, 'role' | 'member_id' | 'company_code'> | null
     if (typedProfile?.role === 'member' && typedProfile.member_id) {
       selfMemberId = typedProfile.member_id
+    }
+    if (typedProfile?.role === 'approver' && typedProfile.company_code) {
+      approverCompanyCode = typedProfile.company_code
     }
   }
 
@@ -34,7 +38,7 @@ export default async function NewApplicationPage() {
         <h2 className="text-xl font-bold text-gray-800">新規申請</h2>
       </div>
 
-      <ApplicationForm selfMemberId={selfMemberId} />
+      <ApplicationForm selfMemberId={selfMemberId} approverCompanyCode={approverCompanyCode} />
     </div>
   )
 }
