@@ -4,10 +4,11 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createApplication } from '@/lib/actions/applications'
 import { getMember } from '@/lib/actions/members'
+import { calculateBenefit } from '@/lib/calculations/benefit-calculator'
 import { BENEFIT_TYPE_LIST } from '@/lib/constants/benefit-types'
 import { formatCurrency } from '@/lib/utils/format'
 import type { Member, CalculationParams, BenefitCalculationResult } from '@/types/database'
-import { Search, Send, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Search, Send, Loader2, CheckCircle2, AlertCircle, Calculator } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
 // Dynamic field definitions per benefit type
@@ -306,6 +307,10 @@ export function ApplicationForm() {
   const [benefitTypeCode, setBenefitTypeCode] = useState('')
   const [calcParams, setCalcParams] = useState<CalculationParams>({ memberId: '' })
 
+  // Simulation
+  const [simulationResult, setSimulationResult] = useState<BenefitCalculationResult | null>(null)
+  const [simulationError, setSimulationError] = useState('')
+
   // Result
   const [result, setResult] = useState<{
     applicationId: string
@@ -369,6 +374,32 @@ export function ApplicationForm() {
         )
       default:
         return null
+    }
+  }
+
+  // -- Simulation --
+  function handleSimulation() {
+    setSimulationError('')
+    setSimulationResult(null)
+
+    if (!member) {
+      setSimulationError('会員を選択してください')
+      return
+    }
+    if (!benefitTypeCode) {
+      setSimulationError('給付金種別を選択してください')
+      return
+    }
+
+    try {
+      const result = calculateBenefit(
+        benefitTypeCode,
+        { ...calcParams, memberId: member.member_id },
+        member,
+      )
+      setSimulationResult(result)
+    } catch (err) {
+      setSimulationError(err instanceof Error ? err.message : 'シミュレーションに失敗しました')
     }
   }
 
@@ -536,6 +567,8 @@ export function ApplicationForm() {
           value={benefitTypeCode}
           onChange={e => {
             setBenefitTypeCode(e.target.value)
+            setSimulationResult(null)
+            setSimulationError('')
             // Reset dynamic params when type changes, keep memberId
             setCalcParams({
               memberId: member?.member_id ?? '',
@@ -558,6 +591,69 @@ export function ApplicationForm() {
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h3 className="text-base font-bold text-gray-800 mb-4">詳細情報</h3>
           {renderDynamicFields()}
+        </div>
+      )}
+
+      {/* -- Simulation -- */}
+      {benefitTypeCode && (
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-bold text-gray-800">シミュレーション</h3>
+            <button
+              type="button"
+              onClick={handleSimulation}
+              disabled={!member || !benefitTypeCode}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Calculator className="w-4 h-4" />
+              計算する
+            </button>
+          </div>
+
+          {simulationError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+              <p className="text-sm text-red-700">{simulationError}</p>
+            </div>
+          )}
+
+          {simulationResult && (
+            <div className="rounded-lg bg-green-50 border border-green-200 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                <span className="font-medium text-green-800">計算結果（プレビュー）</span>
+              </div>
+              <dl className="space-y-2 text-sm">
+                <div className="flex gap-2">
+                  <dt className="font-medium text-gray-600 w-32">給付金種別:</dt>
+                  <dd className="text-gray-800">{simulationResult.benefitType}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="font-medium text-gray-600 w-32">算定金額:</dt>
+                  <dd className="text-green-700 font-bold text-lg">{formatCurrency(simulationResult.amount)}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="font-medium text-gray-600 w-32">算定根拠:</dt>
+                  <dd className="text-gray-700">{simulationResult.calculationDetails}</dd>
+                </div>
+                {simulationResult.membershipYears != null && (
+                  <div className="flex gap-2">
+                    <dt className="font-medium text-gray-600 w-32">入会年数:</dt>
+                    <dd className="text-gray-700">{simulationResult.membershipYears}年</dd>
+                  </div>
+                )}
+                {simulationResult.standardMonthlyRemuneration != null && (
+                  <div className="flex gap-2">
+                    <dt className="font-medium text-gray-600 w-32">標準報酬月額:</dt>
+                    <dd className="text-gray-700">{formatCurrency(simulationResult.standardMonthlyRemuneration)}</dd>
+                  </div>
+                )}
+              </dl>
+              <p className="text-xs text-gray-400 mt-2">
+                ※ この金額は概算です。実際の支給額は承認プロセスで確定されます。
+              </p>
+            </div>
+          )}
         </div>
       )}
 

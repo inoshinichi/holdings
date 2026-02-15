@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import type { UserRole } from '@/types/database'
 import {
   Home, Users, UserPlus, FileText, FilePlus, CheckSquare,
-  DollarSign, CreditCard, BarChart3, Database, User
+  DollarSign, CreditCard, BarChart3, Database, User, Shield
 } from 'lucide-react'
 
 interface NavItem {
@@ -27,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/payments', label: '支払管理', icon: CreditCard, roles: ['admin'] },
   { href: '/statistics', label: '統計', icon: BarChart3, roles: ['admin'] },
   { href: '/master', label: 'マスター管理', icon: Database, roles: ['admin'] },
+  { href: '/users', label: 'ユーザー管理', icon: Shield, roles: ['admin'] },
 ]
 
 export function Sidebar({ role }: { role: UserRole }) {

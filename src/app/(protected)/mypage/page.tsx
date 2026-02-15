@@ -2,11 +2,13 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getMember } from '@/lib/actions/members'
 import { getApplications } from '@/lib/actions/applications'
+import { getApplicationStats } from '@/lib/actions/applications'
 import { getStatusLabel, getStatusColor } from '@/lib/constants/application-status'
 import { formatCurrency } from '@/lib/utils/format'
 import { formatDate } from '@/lib/utils/date'
 import type { UserProfile } from '@/types/database'
-import { User, Building2, Calendar, CreditCard, Tag, FileText } from 'lucide-react'
+import Link from 'next/link'
+import { User, Building2, Calendar, CreditCard, Tag, FileText, Shield, CheckSquare, Users as UsersIcon } from 'lucide-react'
 
 export default async function MyPage() {
   const supabase = await createServerSupabaseClient()
@@ -29,8 +31,78 @@ export default async function MyPage() {
 
   const typedProfile = profile as UserProfile
 
-  // If user has no member_id, show unlinked message
+  // If user has no member_id, show role-appropriate page
   if (!typedProfile.member_id) {
+    const ROLE_LABELS: Record<string, string> = { admin: '管理者', approver: '承認者', member: '会員' }
+    const ROLE_COLORS: Record<string, string> = { admin: 'bg-red-100 text-red-700', approver: 'bg-blue-100 text-blue-700', member: 'bg-gray-100 text-gray-700' }
+
+    // For admin/approver, show account info and quick links
+    if (typedProfile.role === 'admin' || typedProfile.role === 'approver') {
+      const { count: pendingCount } = await supabase
+        .from('applications')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['PENDING', 'COMPANY_APPROVED'])
+
+      const { count: memberCount } = await supabase
+        .from('members')
+        .select('*', { count: 'exact', head: true })
+        .eq('employment_status', '在職中')
+
+      return (
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold text-gray-800">マイページ</h2>
+
+          {/* Account info */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="p-3 rounded-full bg-blue-50">
+                <Shield className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {typedProfile.display_name || typedProfile.email}
+                </h3>
+                <p className="text-sm text-gray-400">{typedProfile.email}</p>
+              </div>
+              <div className="ml-auto">
+                <span className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${ROLE_COLORS[typedProfile.role]}`}>
+                  {ROLE_LABELS[typedProfile.role]}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <InfoItem icon={Shield} label="ロール" value={ROLE_LABELS[typedProfile.role]} />
+              <InfoItem icon={Building2} label="会社コード" value={typedProfile.company_code || '-'} />
+              <InfoItem icon={Tag} label="ユーザーID" value={typedProfile.id.slice(0, 8) + '...'} />
+            </div>
+          </div>
+
+          {/* Quick stats */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Link href="/approvals" className="bg-white rounded-lg border border-gray-200 p-5 flex items-center gap-4 hover:border-blue-300 hover:shadow-sm transition">
+              <div className="p-3 rounded-lg bg-yellow-50">
+                <CheckSquare className="w-5 h-5 text-yellow-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-800">{pendingCount ?? 0}</p>
+                <p className="text-sm text-gray-500">承認待ち</p>
+              </div>
+            </Link>
+            <Link href="/members" className="bg-white rounded-lg border border-gray-200 p-5 flex items-center gap-4 hover:border-blue-300 hover:shadow-sm transition">
+              <div className="p-3 rounded-lg bg-blue-50">
+                <UsersIcon className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-800">{memberCount ?? 0}</p>
+                <p className="text-sm text-gray-500">在籍会員</p>
+              </div>
+            </Link>
+          </div>
+        </div>
+      )
+    }
+
+    // For member role without linked member_id
     return (
       <div className="space-y-6">
         <h2 className="text-xl font-bold text-gray-800">マイページ</h2>
