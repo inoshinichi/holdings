@@ -1,0 +1,233 @@
+import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { getMember } from '@/lib/actions/members'
+import { getApplications } from '@/lib/actions/applications'
+import { getStatusLabel, getStatusColor } from '@/lib/constants/application-status'
+import { formatCurrency } from '@/lib/utils/format'
+import { formatDate } from '@/lib/utils/date'
+import type { UserProfile } from '@/types/database'
+import { User, Building2, Calendar, CreditCard, Tag, FileText } from 'lucide-react'
+
+export default async function MyPage() {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  // Fetch user profile
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) {
+    redirect('/login')
+  }
+
+  const typedProfile = profile as UserProfile
+
+  // If user has no member_id, show unlinked message
+  if (!typedProfile.member_id) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-xl font-bold text-gray-800">マイページ</h2>
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+          <User className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500 text-sm">
+            会員情報が紐付けられていません
+          </p>
+          <p className="text-gray-400 text-xs mt-2">
+            管理者にお問い合わせください。
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Fetch member details and applications in parallel
+  const [member, applications] = await Promise.all([
+    getMember(typedProfile.member_id),
+    getApplications({ memberId: typedProfile.member_id }),
+  ])
+
+  if (!member) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-xl font-bold text-gray-800">マイページ</h2>
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+          <User className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500 text-sm">
+            会員情報が見つかりません
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const STATUS_BADGE: Record<string, string> = {
+    '在職中': 'bg-green-100 text-green-700',
+    '休会中': 'bg-yellow-100 text-yellow-700',
+    '退会':   'bg-gray-100 text-gray-500',
+  }
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-bold text-gray-800">マイページ</h2>
+
+      {/* Member info card */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="p-3 rounded-full bg-blue-50">
+            <User className="w-6 h-6 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">
+              {member.last_name} {member.first_name}
+            </h3>
+            {member.last_name_kana && member.first_name_kana && (
+              <p className="text-sm text-gray-400">
+                {member.last_name_kana} {member.first_name_kana}
+              </p>
+            )}
+          </div>
+          <div className="ml-auto">
+            <span
+              className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${
+                STATUS_BADGE[member.employment_status] ?? 'bg-gray-100 text-gray-500'
+              }`}
+            >
+              {member.employment_status}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <InfoItem
+            icon={Tag}
+            label="会員ID"
+            value={member.member_id}
+          />
+          <InfoItem
+            icon={Building2}
+            label="会社"
+            value={member.company_name}
+          />
+          <InfoItem
+            icon={Calendar}
+            label="入会日"
+            value={formatDate(member.enrollment_date)}
+          />
+          <InfoItem
+            icon={CreditCard}
+            label="会費区分"
+            value={member.fee_category}
+          />
+          <InfoItem
+            icon={CreditCard}
+            label="会費金額"
+            value={formatCurrency(member.fee_amount)}
+          />
+          {member.email && (
+            <InfoItem
+              icon={User}
+              label="メールアドレス"
+              value={member.email}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Application history */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <FileText className="w-5 h-5 text-gray-600" />
+          <h3 className="text-lg font-semibold text-gray-700">申請履歴</h3>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-4 py-3 text-left font-medium text-gray-600">申請ID</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-600">申請日</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-600">給付金種別</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-600">金額</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">ステータス</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {applications.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                      申請履歴がありません
+                    </td>
+                  </tr>
+                ) : (
+                  applications.map(app => (
+                    <tr key={app.application_id} className="hover:bg-gray-50 transition">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-700">
+                        {app.application_id}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {formatDate(app.application_date)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-800 font-medium">
+                        {app.benefit_type_name}
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-800 font-medium tabular-nums">
+                        {formatCurrency(app.final_amount)}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(app.status)}`}
+                        >
+                          {getStatusLabel(app.status)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {applications.length > 0 && (
+            <div className="border-t border-gray-200 bg-gray-50 px-4 py-3">
+              <p className="text-xs text-gray-500">
+                全 {applications.length} 件
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Info Item sub-component
+// ---------------------------------------------------------------------------
+
+function InfoItem({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ElementType
+  label: string
+  value: string
+}) {
+  return (
+    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+      <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" />
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500">{label}</p>
+        <p className="text-sm font-medium text-gray-800 truncate">{value}</p>
+      </div>
+    </div>
+  )
+}
