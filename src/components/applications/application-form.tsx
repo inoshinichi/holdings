@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createApplication } from '@/lib/actions/applications'
 import { getMember } from '@/lib/actions/members'
@@ -293,7 +293,7 @@ function FarewellFields({
 // Main form component
 // ---------------------------------------------------------------------------
 
-export function ApplicationForm() {
+export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
@@ -302,6 +302,31 @@ export function ApplicationForm() {
   const [member, setMember] = useState<Member | null>(null)
   const [memberError, setMemberError] = useState('')
   const [memberLoading, setMemberLoading] = useState(false)
+
+  // Auto-load member when selfMemberId is provided (regular member)
+  useEffect(() => {
+    if (!selfMemberId) return
+    setMemberLoading(true)
+    getMember(selfMemberId)
+      .then(found => {
+        if (found) {
+          setMember(found)
+          setCalcParams(prev => ({
+            ...prev,
+            memberId: found.member_id,
+            standardMonthlyRemuneration: found.standard_monthly_remuneration ?? undefined,
+          }))
+        } else {
+          setMemberError('会員情報の取得に失敗しました')
+        }
+      })
+      .catch(() => {
+        setMemberError('会員情報の取得に失敗しました')
+      })
+      .finally(() => {
+        setMemberLoading(false)
+      })
+  }, [selfMemberId])
 
   // Form
   const [benefitTypeCode, setBenefitTypeCode] = useState('')
@@ -472,10 +497,10 @@ export function ApplicationForm() {
         <div className="mt-6 flex gap-3">
           <button
             type="button"
-            onClick={() => router.push('/applications')}
+            onClick={() => router.push(selfMemberId ? '/mypage' : '/applications')}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition"
           >
-            申請一覧へ
+            {selfMemberId ? 'マイページへ' : '申請一覧へ'}
           </button>
           <button
             type="button"
@@ -497,37 +522,51 @@ export function ApplicationForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-3xl mx-auto">
-      {/* -- Section 1: Member Search -- */}
+      {/* -- Section 1: Member -- */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <h3 className="text-base font-bold text-gray-800 mb-4">会員検索</h3>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="会員ID（例: VT-00001）"
-            value={memberIdInput}
-            onChange={e => setMemberIdInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleMemberSearch()
-              }
-            }}
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-          <button
-            type="button"
-            onClick={handleMemberSearch}
-            disabled={memberLoading || !memberIdInput.trim()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {memberLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Search className="w-4 h-4" />
-            )}
-            検索
-          </button>
-        </div>
+        <h3 className="text-base font-bold text-gray-800 mb-4">
+          {selfMemberId ? '申請者情報' : '会員検索'}
+        </h3>
+
+        {/* Search UI only for admin/approver (no selfMemberId) */}
+        {!selfMemberId && (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="会員ID（例: VT-00001）"
+              value={memberIdInput}
+              onChange={e => setMemberIdInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleMemberSearch()
+                }
+              }}
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <button
+              type="button"
+              onClick={handleMemberSearch}
+              disabled={memberLoading || !memberIdInput.trim()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {memberLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Search className="w-4 h-4" />
+              )}
+              検索
+            </button>
+          </div>
+        )}
+
+        {/* Loading state for self member */}
+        {selfMemberId && memberLoading && (
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            会員情報を読み込み中...
+          </div>
+        )}
 
         {memberError && (
           <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
@@ -537,7 +576,7 @@ export function ApplicationForm() {
         )}
 
         {member && (
-          <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 p-4">
+          <div className={`${selfMemberId ? '' : 'mt-4 '}rounded-lg bg-blue-50 border border-blue-200 p-4`}>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
               <div className="flex gap-2">
                 <dt className="font-medium text-gray-600">会員ID:</dt>
@@ -602,7 +641,7 @@ export function ApplicationForm() {
             <button
               type="button"
               onClick={handleSimulation}
-              disabled={!member || !benefitTypeCode}
+              disabled={!benefitTypeCode}
               className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Calculator className="w-4 h-4" />
