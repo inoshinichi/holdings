@@ -2,7 +2,6 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getMember } from '@/lib/actions/members'
 import { getApplications } from '@/lib/actions/applications'
-import { getApplicationStats } from '@/lib/actions/applications'
 import { getStatusLabel, getStatusColor } from '@/lib/constants/application-status'
 import { formatCurrency } from '@/lib/utils/format'
 import { formatDate } from '@/lib/utils/date'
@@ -38,15 +37,23 @@ export default async function MyPage() {
 
     // For admin/approver, show account info and quick links
     if (typedProfile.role === 'admin' || typedProfile.role === 'approver') {
-      const { count: pendingCount } = await supabase
-        .from('applications')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['PENDING', 'COMPANY_APPROVED'])
+      let pendingCount = 0
+      let memberCount = 0
+      try {
+        const pendingResult = await supabase
+          .from('applications')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['PENDING', 'COMPANY_APPROVED'])
+        pendingCount = pendingResult.count ?? 0
 
-      const { count: memberCount } = await supabase
-        .from('members')
-        .select('*', { count: 'exact', head: true })
-        .eq('employment_status', '在職中')
+        const memberResult = await supabase
+          .from('members')
+          .select('*', { count: 'exact', head: true })
+          .eq('employment_status', '在職中')
+        memberCount = memberResult.count ?? 0
+      } catch {
+        // Ignore query errors for stats
+      }
 
       return (
         <div className="space-y-6">
