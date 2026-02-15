@@ -179,6 +179,7 @@ export type NotificationType = 'info' | 'approval' | 'rejected' | 'paid' | 'admi
 export interface Notification {
   id: string
   user_id: string
+  member_id: string | null
   title: string
   message: string
   type: NotificationType

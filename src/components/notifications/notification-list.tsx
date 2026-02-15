@@ -17,9 +17,11 @@ const TYPE_STYLES: Record<string, { bg: string; dot: string }> = {
 export function NotificationList({
   notifications: initialNotifications,
   userId,
+  memberId,
 }: {
   notifications: Notification[]
   userId: string
+  memberId?: string
 }) {
   const router = useRouter()
   const [notifications, setNotifications] = useState(initialNotifications)
@@ -38,7 +40,7 @@ export function NotificationList({
 
   function handleMarkAllAsRead() {
     startTransition(async () => {
-      await markAllAsRead(userId)
+      await markAllAsRead(userId, memberId)
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
     })
   }

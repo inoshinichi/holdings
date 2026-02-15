@@ -138,7 +138,7 @@ export default async function MyPage() {
   const [member, applications, notifications] = await Promise.all([
     getMember(typedProfile.member_id),
     getApplications({ memberId: typedProfile.member_id }),
-    getNotifications(user.id),
+    getNotifications(user.id, typedProfile.member_id),
   ])
 
   if (!member) {
@@ -176,7 +176,7 @@ export default async function MyPage() {
 
       {/* Notifications */}
       {notifications.length > 0 && (
-        <NotificationList notifications={notifications} userId={user.id} />
+        <NotificationList notifications={notifications} userId={user.id} memberId={typedProfile.member_id} />
       )}
 
       {/* Member info card */}

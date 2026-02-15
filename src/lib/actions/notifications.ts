@@ -7,15 +7,22 @@ import type { Notification, NotificationType } from '@/types/database'
 // 通知取得
 // ---------------------------------------------------------------------------
 
-export async function getNotifications(userId: string): Promise<Notification[]> {
+export async function getNotifications(userId: string, memberId?: string): Promise<Notification[]> {
   const supabase = await createServerSupabaseClient()
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('notifications')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(50)
+
+  if (memberId) {
+    // member_idがnull（全員向け通知等）またはこの会員宛の通知のみ表示
+    query = query.or(`member_id.is.null,member_id.eq.${memberId}`)
+  }
+
+  const { data, error } = await query
 
   if (error) {
     console.error('getNotifications error:', error.message)
@@ -25,14 +32,20 @@ export async function getNotifications(userId: string): Promise<Notification[]> 
   return (data ?? []) as Notification[]
 }
 
-export async function getUnreadCount(userId: string): Promise<number> {
+export async function getUnreadCount(userId: string, memberId?: string): Promise<number> {
   const supabase = await createServerSupabaseClient()
 
-  const { count, error } = await supabase
+  let query = supabase
     .from('notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('is_read', false)
+
+  if (memberId) {
+    query = query.or(`member_id.is.null,member_id.eq.${memberId}`)
+  }
+
+  const { count, error } = await query
 
   if (error) {
     console.error('getUnreadCount error:', error.message)
@@ -55,14 +68,20 @@ export async function markAsRead(notificationId: string): Promise<void> {
     .eq('id', notificationId)
 }
 
-export async function markAllAsRead(userId: string): Promise<void> {
+export async function markAllAsRead(userId: string, memberId?: string): Promise<void> {
   const supabase = await createServerSupabaseClient()
 
-  await supabase
+  let query = supabase
     .from('notifications')
     .update({ is_read: true })
     .eq('user_id', userId)
     .eq('is_read', false)
+
+  if (memberId) {
+    query = query.or(`member_id.is.null,member_id.eq.${memberId}`)
+  }
+
+  await query
 }
 
 // ---------------------------------------------------------------------------
@@ -75,11 +94,13 @@ export async function createNotification(
   message: string,
   type: NotificationType = 'info',
   link?: string,
+  memberId?: string,
 ): Promise<void> {
   const supabase = await createServerSupabaseClient()
 
   await supabase.from('notifications').insert({
     user_id: userId,
+    member_id: memberId ?? null,
     title,
     message,
     type,
@@ -125,6 +146,7 @@ export async function sendAdminNotification(
   try {
     // 送信先ユーザーを特定
     let targetUserIds: string[] = []
+    let targetMemberId: string | null = null
 
     if (input.target === 'all') {
       const { data: users } = await supabase
@@ -142,10 +164,11 @@ export async function sendAdminNotification(
     } else if (input.target === 'member' && input.memberId) {
       const { data: users } = await supabase
         .from('user_profiles')
-        .select('id')
+        .select('id, member_id')
         .eq('member_id', input.memberId)
         .eq('is_active', true)
       targetUserIds = (users ?? []).map(u => u.id)
+      targetMemberId = input.memberId
     } else {
       return { success: false, error: '送信先を正しく指定してください' }
     }
@@ -157,6 +180,7 @@ export async function sendAdminNotification(
     // 通知レコードを一括挿入
     const rows = targetUserIds.map(uid => ({
       user_id: uid,
+      member_id: targetMemberId,
       title: input.title.trim(),
       message: input.message.trim(),
       type: 'admin' as const,
