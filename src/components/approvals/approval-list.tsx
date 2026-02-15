@@ -1,12 +1,15 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils/format'
 import { formatDate } from '@/lib/utils/date'
 import { getStatusLabel, getStatusColor } from '@/lib/constants/application-status'
 import { approveByCompany, approveByHQ, rejectApplication } from '@/lib/actions/approvals'
+import { getAttachments } from '@/lib/actions/attachments'
+import type { AttachmentInfo } from '@/lib/actions/attachments'
 import type { Application, UserRole } from '@/types/database'
+import { Paperclip, FileText, Image as ImageIcon } from 'lucide-react'
 
 interface ApprovalListProps {
   companyApprovals: Application[]
@@ -39,21 +42,29 @@ export function ApprovalList({
   const [rejectReason, setRejectReason] = useState('')
   const [finalAmount, setFinalAmount] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [dialogAttachments, setDialogAttachments] = useState<AttachmentInfo[]>([])
 
   const showHqTab = userRole === 'admin'
   const currentApprovals = activeTab === 'company' ? companyApprovals : hqApprovals
+
+  function loadAttachments(applicationId: string) {
+    setDialogAttachments([])
+    getAttachments(applicationId).then(setDialogAttachments)
+  }
 
   function openApproveDialog(app: Application, level: 'company' | 'hq') {
     setDialog({ mode: 'approve', application: app, level })
     setComment('')
     setFinalAmount(level === 'hq' ? String(app.calculated_amount) : '')
     setMessage(null)
+    loadAttachments(app.application_id)
   }
 
   function openRejectDialog(app: Application, level: 'company' | 'hq') {
     setDialog({ mode: 'reject', application: app, level })
     setRejectReason('')
     setMessage(null)
+    loadAttachments(app.application_id)
   }
 
   function closeDialog() {
@@ -61,6 +72,11 @@ export function ApprovalList({
     setComment('')
     setRejectReason('')
     setFinalAmount('')
+    setDialogAttachments([])
+  }
+
+  function isImage(name: string) {
+    return /\.(jpg|jpeg|png)$/i.test(name)
   }
 
   async function handleApprove() {
@@ -266,6 +282,34 @@ export function ApprovalList({
               </div>
             </div>
 
+            {/* 添付ファイル */}
+            {dialogAttachments.length > 0 && (
+              <div className="mb-4 border-t border-gray-200 pt-3">
+                <p className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <Paperclip className="w-4 h-4" />
+                  添付ファイル（{dialogAttachments.length}件）
+                </p>
+                <div className="space-y-1.5">
+                  {dialogAttachments.map(att => (
+                    <a
+                      key={att.path}
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 rounded border border-gray-200 bg-gray-50 p-2 text-sm text-blue-600 hover:bg-blue-50 transition"
+                    >
+                      {isImage(att.name) ? (
+                        <ImageIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                      ) : (
+                        <FileText className="w-4 h-4 text-red-500 shrink-0" />
+                      )}
+                      <span className="truncate">{att.name}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {dialog.level === 'hq' && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -342,6 +386,34 @@ export function ApprovalList({
                 <span className="text-gray-800">{dialog.application.benefit_type_name}</span>
               </div>
             </div>
+
+            {/* 添付ファイル */}
+            {dialogAttachments.length > 0 && (
+              <div className="mb-4 border-t border-gray-200 pt-3">
+                <p className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <Paperclip className="w-4 h-4" />
+                  添付ファイル（{dialogAttachments.length}件）
+                </p>
+                <div className="space-y-1.5">
+                  {dialogAttachments.map(att => (
+                    <a
+                      key={att.path}
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 rounded border border-gray-200 bg-gray-50 p-2 text-sm text-blue-600 hover:bg-blue-50 transition"
+                    >
+                      {isImage(att.name) ? (
+                        <ImageIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                      ) : (
+                        <FileText className="w-4 h-4 text-red-500 shrink-0" />
+                      )}
+                      <span className="truncate">{att.name}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
