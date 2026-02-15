@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { APPLICATION_STATUS } from '@/lib/constants/application-status'
 import { format } from 'date-fns'
 import type { Application } from '@/types/database'
+import { createNotification } from '@/lib/actions/notifications'
 
 // ---------------------------------------------------------------------------
 // 1. 各社承認 (Company-level approval)
@@ -69,6 +70,24 @@ export async function approveByCompany(
         ? `各社承認 コメント: ${comment}`
         : '各社承認',
     })
+
+    // 本部承認者に通知
+    try {
+      const { data: hqApprovers } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('role', 'admin')
+        .eq('is_active', true)
+      for (const approver of hqApprovers ?? []) {
+        await createNotification(
+          approver.id,
+          '各社承認完了',
+          `申請 ${applicationId}（${application.member_name}）が各社承認されました。本部承認をお願いします。`,
+          'approval',
+          `/applications/${applicationId}`,
+        )
+      }
+    } catch { /* 通知失敗は無視 */ }
 
     return { success: true }
   } catch (err) {
@@ -194,6 +213,24 @@ export async function approveByHQ(
         : `本部承認 最終金額: ${resolvedAmount}`,
     })
 
+    // 申請会員に通知
+    try {
+      const { data: memberProfile } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('member_id', application.member_id)
+        .single()
+      if (memberProfile) {
+        await createNotification(
+          memberProfile.id,
+          '本部承認完了',
+          `申請 ${applicationId}（${application.benefit_type_name}）が本部承認されました。`,
+          'approval',
+          `/applications/${applicationId}`,
+        )
+      }
+    } catch { /* 通知失敗は無視 */ }
+
     return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : '不明なエラー'
@@ -260,6 +297,24 @@ export async function rejectApplication(
       target: applicationId,
       details: `${level === 'hq' ? '本部' : '各社'}差戻し 理由: ${reason}`,
     })
+
+    // 申請会員に通知
+    try {
+      const { data: memberProfile } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('member_id', application.member_id)
+        .single()
+      if (memberProfile) {
+        await createNotification(
+          memberProfile.id,
+          '申請が差戻しされました',
+          `申請 ${applicationId}（${application.benefit_type_name}）が差戻しされました。理由: ${reason}`,
+          'rejected',
+          `/applications/${applicationId}`,
+        )
+      }
+    } catch { /* 通知失敗は無視 */ }
 
     return { success: true }
   } catch (err) {
@@ -328,6 +383,24 @@ export async function markAsPaid(
       target: applicationId,
       details: `支払完了 支払日: ${completedDate}`,
     })
+
+    // 申請会員に通知
+    try {
+      const { data: memberProfile } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('member_id', application.member_id)
+        .single()
+      if (memberProfile) {
+        await createNotification(
+          memberProfile.id,
+          '支払が完了しました',
+          `申請 ${applicationId}（${application.benefit_type_name}）の支払が完了しました。`,
+          'paid',
+          `/applications/${applicationId}`,
+        )
+      }
+    } catch { /* 通知失敗は無視 */ }
 
     return { success: true }
   } catch (err) {

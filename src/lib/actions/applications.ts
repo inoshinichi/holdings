@@ -6,6 +6,7 @@ import { APPLICATION_STATUS } from '@/lib/constants/application-status'
 import { calculateBenefit } from '@/lib/calculations/benefit-calculator'
 import { getBenefitTypeName } from '@/lib/constants/benefit-types'
 import { format } from 'date-fns'
+import { createNotification } from '@/lib/actions/notifications'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -208,6 +209,25 @@ export async function createApplication(
       target: applicationId,
       details: `申請作成: ${benefitTypeName} - ${typedMember.last_name} ${typedMember.first_name} - ${benefitResult.amount.toLocaleString()}円`,
     })
+
+    // 6. 該当会社の承認者に通知
+    try {
+      const { data: companyApprovers } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('company_code', typedMember.company_code)
+        .in('role', ['approver', 'admin'])
+        .eq('is_active', true)
+      for (const approver of companyApprovers ?? []) {
+        await createNotification(
+          approver.id,
+          '新規申請',
+          `${typedMember.last_name} ${typedMember.first_name}さんから${benefitTypeName}の申請がありました。`,
+          'info',
+          `/applications/${applicationId}`,
+        )
+      }
+    } catch { /* 通知失敗は無視 */ }
 
     return {
       success: true,

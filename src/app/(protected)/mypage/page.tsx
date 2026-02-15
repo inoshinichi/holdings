@@ -2,12 +2,14 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getMember } from '@/lib/actions/members'
 import { getApplications } from '@/lib/actions/applications'
+import { getNotifications } from '@/lib/actions/notifications'
 import { getStatusLabel, getStatusColor } from '@/lib/constants/application-status'
 import { formatCurrency } from '@/lib/utils/format'
 import { formatDate } from '@/lib/utils/date'
 import type { UserProfile } from '@/types/database'
 import Link from 'next/link'
-import { User, Building2, Calendar, CreditCard, Tag, FileText, FilePlus, Shield, CheckSquare, Users as UsersIcon } from 'lucide-react'
+import { User, Building2, Calendar, CreditCard, Tag, FileText, FilePlus, Shield, CheckSquare, Users as UsersIcon, Bell } from 'lucide-react'
+import { NotificationList } from '@/components/notifications/notification-list'
 
 export default async function MyPage() {
   const supabase = await createServerSupabaseClient()
@@ -37,6 +39,7 @@ export default async function MyPage() {
 
     // For admin/approver, show account info and quick links
     if (typedProfile.role === 'admin' || typedProfile.role === 'approver') {
+      const notifications = await getNotifications(user.id)
       let pendingCount = 0
       let memberCount = 0
       try {
@@ -58,6 +61,11 @@ export default async function MyPage() {
       return (
         <div className="space-y-6">
           <h2 className="text-xl font-bold text-gray-800">マイページ</h2>
+
+          {/* Notifications */}
+          {notifications.length > 0 && (
+            <NotificationList notifications={notifications} userId={user.id} />
+          )}
 
           {/* Account info */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -126,10 +134,11 @@ export default async function MyPage() {
     )
   }
 
-  // Fetch member details and applications in parallel
-  const [member, applications] = await Promise.all([
+  // Fetch member details, applications, and notifications in parallel
+  const [member, applications, notifications] = await Promise.all([
     getMember(typedProfile.member_id),
     getApplications({ memberId: typedProfile.member_id }),
+    getNotifications(user.id),
   ])
 
   if (!member) {
@@ -164,6 +173,11 @@ export default async function MyPage() {
           新規申請
         </Link>
       </div>
+
+      {/* Notifications */}
+      {notifications.length > 0 && (
+        <NotificationList notifications={notifications} userId={user.id} />
+      )}
 
       {/* Member info card */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">

@@ -166,6 +166,19 @@ export interface AuditLog {
   ip_address: string | null
 }
 
+export type NotificationType = 'info' | 'approval' | 'rejected' | 'paid' | 'admin'
+
+export interface Notification {
+  id: string
+  user_id: string
+  title: string
+  message: string
+  type: NotificationType
+  link: string | null
+  is_read: boolean
+  created_at: string
+}
+
 export interface BenefitCalculationResult {
   benefitType: string
   amount: number
