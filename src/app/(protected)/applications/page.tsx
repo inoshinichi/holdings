@@ -231,8 +231,10 @@ export default async function ApplicationsPage({
                     key={app.application_id}
                     className="hover:bg-gray-50 transition"
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                      {app.application_id}
+                    <td className="px-4 py-3 font-mono text-xs">
+                      <Link href={`/applications/${app.application_id}`} className="text-blue-600 hover:underline">
+                        {app.application_id}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {formatDate(app.application_date)}

@@ -44,10 +44,10 @@ export default async function DashboardPage() {
   const monthlyBenefit = paidApps?.reduce((sum, a) => sum + (a.final_amount || 0), 0) ?? 0
 
   const stats = [
-    { label: '会員数', value: String(memberCount ?? 0), icon: Users, color: 'text-blue-600 bg-blue-50' },
-    { label: '承認待ち', value: String(pendingCount ?? 0), icon: CheckSquare, color: 'text-yellow-600 bg-yellow-50' },
-    { label: '今月給付金', value: formatCurrency(monthlyBenefit), icon: DollarSign, color: 'text-green-600 bg-green-50' },
-    { label: '加盟会社', value: String(companyCount ?? 0), icon: Building2, color: 'text-purple-600 bg-purple-50' },
+    { label: '会員数', value: String(memberCount ?? 0), icon: Users, color: 'text-blue-600 bg-blue-50', href: '/members' },
+    { label: '承認待ち', value: String(pendingCount ?? 0), icon: CheckSquare, color: 'text-yellow-600 bg-yellow-50', href: '/approvals' },
+    { label: '今月給付金', value: formatCurrency(monthlyBenefit), icon: DollarSign, color: 'text-green-600 bg-green-50', href: '/statistics' },
+    { label: '加盟会社', value: String(companyCount ?? 0), icon: Building2, color: 'text-purple-600 bg-purple-50', href: '/master' },
   ]
 
   const quickLinks = [
@@ -67,7 +67,7 @@ export default async function DashboardPage() {
         {stats.map(stat => {
           const Icon = stat.icon
           return (
-            <div key={stat.label} className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
+            <Link key={stat.label} href={stat.href} className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4 hover:border-blue-300 hover:shadow-sm transition cursor-pointer">
               <div className={`p-3 rounded-lg ${stat.color}`}>
                 <Icon className="w-5 h-5" />
               </div>
@@ -75,7 +75,7 @@ export default async function DashboardPage() {
                 <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
                 <p className="text-sm text-gray-500">{stat.label}</p>
               </div>
-            </div>
+            </Link>
           )
         })}
       </div>
