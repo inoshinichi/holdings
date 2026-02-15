@@ -9,6 +9,7 @@ import { getFeeAmount } from '@/lib/constants/fee-categories'
 // ---------------------------------------------------------------------------
 
 export interface RegisterMemberInput {
+  memberId?: string
   companyCode: string
   companyName: string
   lastName: string
@@ -129,7 +130,22 @@ export async function registerMember(
   const supabase = await createServerSupabaseClient()
 
   try {
-    const memberId = await generateMemberId(supabase, data.companyCode)
+    // 会員IDが指定されていればそれを使い、なければ自動発番
+    let memberId: string
+    if (data.memberId?.trim()) {
+      // 重複チェック
+      const { data: existing } = await supabase
+        .from('members')
+        .select('member_id')
+        .eq('member_id', data.memberId.trim())
+        .single()
+      if (existing) {
+        return { success: false, error: `会員ID「${data.memberId.trim()}」は既に使用されています` }
+      }
+      memberId = data.memberId.trim()
+    } else {
+      memberId = await generateMemberId(supabase, data.companyCode)
+    }
     const feeAmount = getFeeAmount(data.feeCategory)
 
     const { error: insertError } = await supabase.from('members').insert({

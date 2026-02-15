@@ -17,6 +17,7 @@ export function MemberForm({ companies }: MemberFormProps) {
   const [error, setError] = useState('')
 
   // Form fields
+  const [memberId, setMemberId] = useState('')
   const [companyCode, setCompanyCode] = useState('')
   const [companyName, setCompanyName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -60,6 +61,7 @@ export function MemberForm({ companies }: MemberFormProps) {
     }
 
     const input: RegisterMemberInput = {
+      memberId: memberId || undefined,
       companyCode,
       companyName,
       lastName,
@@ -142,6 +144,7 @@ export function MemberForm({ companies }: MemberFormProps) {
           <button
             onClick={() => {
               setRegisteredId(null)
+              setMemberId('')
               setCompanyCode('')
               setCompanyName('')
               setLastName('')
@@ -216,6 +219,21 @@ export function MemberForm({ companies }: MemberFormProps) {
               className={`${inputCls} bg-gray-50`}
               placeholder="会社を選択すると自動入力されます"
             />
+          </div>
+
+          {/* Member ID (optional) */}
+          <div className="md:col-span-2">
+            <label className={labelCls}>会員番号</label>
+            <input
+              type="text"
+              value={memberId}
+              onChange={(e) => setMemberId(e.target.value)}
+              className={inputCls}
+              placeholder="空欄の場合は自動発番（例: VT-00001）"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              任意の会員番号を指定できます。空欄の場合は会社コードに基づいて自動で発番されます。
+            </p>
           </div>
 
           {/* Last name */}
