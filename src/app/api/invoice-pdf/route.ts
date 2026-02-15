@@ -13,7 +13,18 @@ export async function GET(request: NextRequest) {
   // 認証チェック
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
+  }
+
+  // Admin role check
+  const { data: userProfile } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (userProfile?.role !== 'admin') {
+    return NextResponse.json({ error: 'この操作には管理者権限が必要です' }, { status: 403 })
   }
 
   // 会費データ取得

@@ -7,6 +7,8 @@ import { calculateBenefit } from '@/lib/calculations/benefit-calculator'
 import { getBenefitTypeName } from '@/lib/constants/benefit-types'
 import { format } from 'date-fns'
 import { createNotification } from '@/lib/actions/notifications'
+import { requireAuth, requireRole, getClientIP } from '@/lib/actions/auth'
+import { AuthorizationError } from '@/lib/errors'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,54 +81,98 @@ export async function getApplications(filters?: {
   memberId?: string
   benefitTypeCode?: string
 }): Promise<Application[]> {
-  const supabase = await createServerSupabaseClient()
+  try {
+    const { supabase, profile } = await requireAuth()
 
-  let query = supabase
-    .from('applications')
-    .select('*')
-    .order('application_date', { ascending: false })
+    const effectiveFilters = { ...filters }
 
-  if (filters?.status) {
-    query = query.eq('status', filters.status)
-  }
-  if (filters?.companyCode) {
-    query = query.eq('company_code', filters.companyCode)
-  }
-  if (filters?.memberId) {
-    query = query.eq('member_id', filters.memberId)
-  }
-  if (filters?.benefitTypeCode) {
-    query = query.eq('benefit_type_code', filters.benefitTypeCode)
-  }
+    // If member: force memberId filter to own member_id
+    if (profile.role === 'member') {
+      effectiveFilters.memberId = profile.member_id ?? undefined
+    }
 
-  const { data, error } = await query
+    // If approver: force companyCode to own company
+    if (profile.role === 'approver') {
+      effectiveFilters.companyCode = profile.company_code ?? undefined
+    }
 
-  if (error) {
-    console.error('申請一覧の取得に失敗しました:', error.message)
+    let query = supabase
+      .from('applications')
+      .select('*')
+      .order('application_date', { ascending: false })
+
+    if (effectiveFilters?.status) {
+      query = query.eq('status', effectiveFilters.status)
+    }
+    if (effectiveFilters?.companyCode) {
+      query = query.eq('company_code', effectiveFilters.companyCode)
+    }
+    if (effectiveFilters?.memberId) {
+      query = query.eq('member_id', effectiveFilters.memberId)
+    }
+    if (effectiveFilters?.benefitTypeCode) {
+      query = query.eq('benefit_type_code', effectiveFilters.benefitTypeCode)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('申請一覧の取得に失敗しました:', error.message)
+      return []
+    }
+
+    return (data ?? []) as Application[]
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return []
+    }
+    console.error('申請一覧の取得に失敗しました:', err)
     return []
   }
-
-  return (data ?? []) as Application[]
 }
 
 /**
  * 申請詳細を取得する
  */
 export async function getApplication(applicationId: string): Promise<Application | null> {
-  const supabase = await createServerSupabaseClient()
+  try {
+    const { supabase, profile } = await requireAuth()
 
-  const { data, error } = await supabase
-    .from('applications')
-    .select('*')
-    .eq('application_id', applicationId)
-    .single()
+    const { data, error } = await supabase
+      .from('applications')
+      .select('*')
+      .eq('application_id', applicationId)
+      .single()
 
-  if (error) {
-    console.error('申請の取得に失敗しました:', error.message)
+    if (error) {
+      console.error('申請の取得に失敗しました:', error.message)
+      return null
+    }
+
+    const application = data as Application
+
+    // If member: check app.member_id matches own member_id
+    if (profile.role === 'member') {
+      if (application.member_id !== profile.member_id) {
+        return null
+      }
+    }
+
+    // If approver: check app.company_code matches own company_code
+    if (profile.role === 'approver') {
+      if (application.company_code !== profile.company_code) {
+        return null
+      }
+    }
+
+    return application
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return null
+    }
+    console.error('申請の取得に失敗しました:', err)
     return null
   }
-
-  return data as Application
 }
 
 /**
@@ -135,9 +181,17 @@ export async function getApplication(applicationId: string): Promise<Application
 export async function createApplication(
   input: CreateApplicationInput
 ): Promise<CreateApplicationResult | CreateApplicationError> {
-  const supabase = await createServerSupabaseClient()
-
   try {
+    const { supabase, user, profile } = await requireAuth()
+    const ip = await getClientIP()
+
+    // If member: check input.memberId matches own member_id
+    if (profile.role === 'member') {
+      if (input.memberId !== profile.member_id) {
+        return { success: false, error: '他の会員の申請を作成する権限がありません' }
+      }
+    }
+
     // 1. 会員情報を取得
     const { data: member, error: memberError } = await supabase
       .from('members')
@@ -150,6 +204,13 @@ export async function createApplication(
     }
 
     const typedMember = member as Member
+
+    // If approver: check member's company_code matches own company_code
+    if (profile.role === 'approver') {
+      if (typedMember.company_code !== profile.company_code) {
+        return { success: false, error: 'この会社のデータにアクセスする権限がありません' }
+      }
+    }
 
     // 2. 給付金を計算
     const benefitResult = calculateBenefit(
@@ -221,12 +282,11 @@ export async function createApplication(
     }
 
     // 5. 監査ログを記録
-    const { data: { user } } = await supabase.auth.getUser()
-
     await supabase.from('audit_logs').insert({
       timestamp: now,
-      user_email: user?.email ?? null,
-      user_id: user?.id ?? null,
+      user_email: user.email,
+      user_id: user.id,
+      ip_address: ip,
       operation_type: 'CREATE_APPLICATION',
       target: applicationId,
       details: `申請作成: ${benefitTypeName} - ${typedMember.last_name} ${typedMember.first_name} - ${benefitResult.amount.toLocaleString()}円`,
@@ -257,6 +317,9 @@ export async function createApplication(
       benefitResult,
     }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '不明なエラーが発生しました'
     console.error('申請作成中にエラーが発生しました:', message)
     return { success: false, error: message }
@@ -267,20 +330,78 @@ export async function createApplication(
  * 申請のステータス別集計を取得する
  */
 export async function getApplicationStats(companyCode?: string): Promise<ApplicationStats> {
-  const supabase = await createServerSupabaseClient()
+  try {
+    const { supabase, profile } = await requireRole(['admin', 'approver'])
 
-  let query = supabase
-    .from('applications')
-    .select('status')
+    // If approver: force companyCode to own company
+    const effectiveCompanyCode = profile.role === 'approver'
+      ? (profile.company_code ?? undefined)
+      : companyCode
 
-  if (companyCode) {
-    query = query.eq('company_code', companyCode)
-  }
+    let query = supabase
+      .from('applications')
+      .select('status')
 
-  const { data, error } = await query
+    if (effectiveCompanyCode) {
+      query = query.eq('company_code', effectiveCompanyCode)
+    }
 
-  if (error || !data) {
-    console.error('申請統計の取得に失敗しました:', error?.message)
+    const { data, error } = await query
+
+    if (error || !data) {
+      console.error('申請統計の取得に失敗しました:', error?.message)
+      return {
+        pending: 0,
+        companyApproved: 0,
+        hqApproved: 0,
+        paid: 0,
+        rejected: 0,
+        total: 0,
+      }
+    }
+
+    const stats: ApplicationStats = {
+      pending: 0,
+      companyApproved: 0,
+      hqApproved: 0,
+      paid: 0,
+      rejected: 0,
+      total: data.length,
+    }
+
+    for (const row of data) {
+      switch (row.status) {
+        case APPLICATION_STATUS.PENDING:
+          stats.pending++
+          break
+        case APPLICATION_STATUS.COMPANY_APPROVED:
+          stats.companyApproved++
+          break
+        case APPLICATION_STATUS.HQ_APPROVED:
+          stats.hqApproved++
+          break
+        case APPLICATION_STATUS.PAID:
+          stats.paid++
+          break
+        case APPLICATION_STATUS.REJECTED:
+          stats.rejected++
+          break
+      }
+    }
+
+    return stats
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return {
+        pending: 0,
+        companyApproved: 0,
+        hqApproved: 0,
+        paid: 0,
+        rejected: 0,
+        total: 0,
+      }
+    }
+    console.error('申請統計の取得に失敗しました:', err)
     return {
       pending: 0,
       companyApproved: 0,
@@ -290,35 +411,4 @@ export async function getApplicationStats(companyCode?: string): Promise<Applica
       total: 0,
     }
   }
-
-  const stats: ApplicationStats = {
-    pending: 0,
-    companyApproved: 0,
-    hqApproved: 0,
-    paid: 0,
-    rejected: 0,
-    total: data.length,
-  }
-
-  for (const row of data) {
-    switch (row.status) {
-      case APPLICATION_STATUS.PENDING:
-        stats.pending++
-        break
-      case APPLICATION_STATUS.COMPANY_APPROVED:
-        stats.companyApproved++
-        break
-      case APPLICATION_STATUS.HQ_APPROVED:
-        stats.hqApproved++
-        break
-      case APPLICATION_STATUS.PAID:
-        stats.paid++
-        break
-      case APPLICATION_STATUS.REJECTED:
-        stats.rejected++
-        break
-    }
-  }
-
-  return stats
 }

@@ -3,6 +3,8 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import type { Member, FeeCategory } from '@/types/database'
 import { getFeeAmount } from '@/lib/constants/fee-categories'
+import { requireAuth, requireRole, getClientIP } from '@/lib/actions/auth'
+import { AuthorizationError } from '@/lib/errors'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,55 +77,89 @@ export async function getMembers(
     feeCategory?: string
   },
 ): Promise<Member[]> {
-  const supabase = await createServerSupabaseClient()
+  try {
+    const { supabase, profile } = await requireRole(['admin', 'approver'])
 
-  let query = supabase.from('members').select('*')
+    // If approver, force companyCode filter to own company
+    const effectiveFilters = { ...filters }
+    if (profile.role === 'approver') {
+      effectiveFilters.companyCode = profile.company_code ?? undefined
+    }
 
-  if (filters?.companyCode) {
-    query = query.eq('company_code', filters.companyCode)
-  }
-  if (filters?.status) {
-    query = query.eq('employment_status', filters.status)
-  }
-  if (filters?.feeCategory) {
-    query = query.eq('fee_category', filters.feeCategory)
-  }
+    let query = supabase.from('members').select('*')
 
-  query = query.order('created_at', { ascending: false })
+    if (effectiveFilters?.companyCode) {
+      query = query.eq('company_code', effectiveFilters.companyCode)
+    }
+    if (effectiveFilters?.status) {
+      query = query.eq('employment_status', effectiveFilters.status)
+    }
+    if (effectiveFilters?.feeCategory) {
+      query = query.eq('fee_category', effectiveFilters.feeCategory)
+    }
 
-  const { data, error } = await query
+    query = query.order('created_at', { ascending: false })
 
-  if (error) {
-    console.error('getMembers error:', error.message)
+    const { data, error } = await query
+
+    if (error) {
+      console.error('getMembers error:', error.message)
+      return []
+    }
+
+    return (data ?? []) as Member[]
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return []
+    }
+    console.error('getMembers error:', err)
     return []
   }
-
-  return (data ?? []) as Member[]
 }
 
 /**
  * 単一会員を取得する
  */
 export async function getMember(memberId: string, companyCode?: string): Promise<Member | null> {
-  const supabase = await createServerSupabaseClient()
+  try {
+    const { supabase, profile } = await requireAuth()
 
-  let query = supabase
-    .from('members')
-    .select('*')
-    .eq('member_id', memberId)
+    // If member role: only allow access to own member record
+    if (profile.role === 'member') {
+      if (profile.member_id !== memberId) {
+        return null
+      }
+    }
 
-  if (companyCode) {
-    query = query.eq('company_code', companyCode)
-  }
+    // If approver: force companyCode to own company
+    const effectiveCompanyCode = profile.role === 'approver'
+      ? (profile.company_code ?? undefined)
+      : companyCode
 
-  const { data, error } = await query.single()
+    let query = supabase
+      .from('members')
+      .select('*')
+      .eq('member_id', memberId)
 
-  if (error) {
-    console.error('getMember error:', error.message)
+    if (effectiveCompanyCode) {
+      query = query.eq('company_code', effectiveCompanyCode)
+    }
+
+    const { data, error } = await query.single()
+
+    if (error) {
+      console.error('getMember error:', error.message)
+      return null
+    }
+
+    return data as Member
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return null
+    }
+    console.error('getMember error:', err)
     return null
   }
-
-  return data as Member
 }
 
 /**
@@ -132,9 +168,15 @@ export async function getMember(memberId: string, companyCode?: string): Promise
 export async function registerMember(
   data: RegisterMemberInput,
 ): Promise<{ success: true; memberId: string } | { success: false; error: string }> {
-  const supabase = await createServerSupabaseClient()
-
   try {
+    const { supabase, user, profile } = await requireRole(['admin', 'approver'])
+    const ip = await getClientIP()
+
+    // If approver, verify company_code matches own company
+    if (profile.role === 'approver' && data.companyCode !== profile.company_code) {
+      return { success: false, error: 'この会社のデータにアクセスする権限がありません' }
+    }
+
     // 会員IDが指定されていればそれを使い、なければ自動発番
     let memberId: string
     if (data.memberId?.trim()) {
@@ -185,9 +227,10 @@ export async function registerMember(
     }
 
     // 監査ログを記録
-    const userEmail = (await supabase.auth.getUser()).data.user?.email
     await supabase.from('audit_logs').insert({
-      user_email: userEmail,
+      user_email: user.email,
+      user_id: user.id,
+      ip_address: ip,
       operation_type: '会員登録',
       target: memberId,
       details: `${data.lastName} ${data.firstName}`,
@@ -195,6 +238,9 @@ export async function registerMember(
 
     return { success: true, memberId }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '会員登録中にエラーが発生しました'
     return { success: false, error: message }
   }
@@ -207,9 +253,22 @@ export async function updateMember(
   memberId: string,
   data: Record<string, unknown>,
 ): Promise<{ success: boolean; error?: string }> {
-  const supabase = await createServerSupabaseClient()
-
   try {
+    const { supabase, user, profile } = await requireRole(['admin', 'approver'])
+    const ip = await getClientIP()
+
+    // If approver, fetch member and check company_code matches
+    if (profile.role === 'approver') {
+      const { data: member } = await supabase
+        .from('members')
+        .select('company_code')
+        .eq('member_id', memberId)
+        .single()
+      if (!member || member.company_code !== profile.company_code) {
+        return { success: false, error: 'この会社のデータにアクセスする権限がありません' }
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('members')
       .update(data)
@@ -220,9 +279,10 @@ export async function updateMember(
     }
 
     // 監査ログを記録
-    const userEmail = (await supabase.auth.getUser()).data.user?.email
     await supabase.from('audit_logs').insert({
-      user_email: userEmail,
+      user_email: user.email,
+      user_id: user.id,
+      ip_address: ip,
       operation_type: '会員更新',
       target: memberId,
       details: `更新フィールド: ${Object.keys(data).join(', ')}`,
@@ -230,6 +290,9 @@ export async function updateMember(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '会員更新中にエラーが発生しました'
     return { success: false, error: message }
   }
@@ -243,9 +306,22 @@ export async function setMemberOnLeave(
   startDate: string,
   endDate?: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const supabase = await createServerSupabaseClient()
-
   try {
+    const { supabase, user, profile } = await requireRole(['admin', 'approver'])
+    const ip = await getClientIP()
+
+    // If approver, fetch member and check company_code matches
+    if (profile.role === 'approver') {
+      const { data: member } = await supabase
+        .from('members')
+        .select('company_code')
+        .eq('member_id', memberId)
+        .single()
+      if (!member || member.company_code !== profile.company_code) {
+        return { success: false, error: 'この会社のデータにアクセスする権限がありません' }
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('members')
       .update({
@@ -260,9 +336,10 @@ export async function setMemberOnLeave(
     }
 
     // 監査ログを記録
-    const userEmail = (await supabase.auth.getUser()).data.user?.email
     await supabase.from('audit_logs').insert({
-      user_email: userEmail,
+      user_email: user.email,
+      user_id: user.id,
+      ip_address: ip,
       operation_type: '休会処理',
       target: memberId,
       details: `休会開始: ${startDate}${endDate ? `, 休会終了: ${endDate}` : ''}`,
@@ -270,6 +347,9 @@ export async function setMemberOnLeave(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '休会処理中にエラーが発生しました'
     return { success: false, error: message }
   }
@@ -282,9 +362,22 @@ export async function withdrawMember(
   memberId: string,
   withdrawalDate: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const supabase = await createServerSupabaseClient()
-
   try {
+    const { supabase, user, profile } = await requireRole(['admin', 'approver'])
+    const ip = await getClientIP()
+
+    // If approver, fetch member and check company_code matches
+    if (profile.role === 'approver') {
+      const { data: member } = await supabase
+        .from('members')
+        .select('company_code')
+        .eq('member_id', memberId)
+        .single()
+      if (!member || member.company_code !== profile.company_code) {
+        return { success: false, error: 'この会社のデータにアクセスする権限がありません' }
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('members')
       .update({
@@ -298,9 +391,10 @@ export async function withdrawMember(
     }
 
     // 監査ログを記録
-    const userEmail = (await supabase.auth.getUser()).data.user?.email
     await supabase.from('audit_logs').insert({
-      user_email: userEmail,
+      user_email: user.email,
+      user_id: user.id,
+      ip_address: ip,
       operation_type: '退会処理',
       target: memberId,
       details: `退会日: ${withdrawalDate}`,
@@ -308,6 +402,9 @@ export async function withdrawMember(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '退会処理中にエラーが発生しました'
     return { success: false, error: message }
   }
@@ -317,27 +414,40 @@ export async function withdrawMember(
  * 会員統計を取得する
  */
 export async function getMemberStats(companyCode?: string): Promise<MemberStats> {
-  const supabase = await createServerSupabaseClient()
+  try {
+    const { supabase, profile } = await requireRole(['admin', 'approver'])
 
-  let totalQ = supabase.from('members').select('*', { count: 'exact', head: true })
-  let activeQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '在職中')
-  let onLeaveQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '休会中')
-  let withdrawnQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '退会')
+    // If approver, force companyCode to own company
+    const effectiveCompanyCode = profile.role === 'approver'
+      ? (profile.company_code ?? undefined)
+      : companyCode
 
-  if (companyCode) {
-    totalQ = totalQ.eq('company_code', companyCode)
-    activeQ = activeQ.eq('company_code', companyCode)
-    onLeaveQ = onLeaveQ.eq('company_code', companyCode)
-    withdrawnQ = withdrawnQ.eq('company_code', companyCode)
-  }
+    let totalQ = supabase.from('members').select('*', { count: 'exact', head: true })
+    let activeQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '在職中')
+    let onLeaveQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '休会中')
+    let withdrawnQ = supabase.from('members').select('*', { count: 'exact', head: true }).eq('employment_status', '退会')
 
-  const [totalResult, activeResult, onLeaveResult, withdrawnResult] =
-    await Promise.all([totalQ, activeQ, onLeaveQ, withdrawnQ])
+    if (effectiveCompanyCode) {
+      totalQ = totalQ.eq('company_code', effectiveCompanyCode)
+      activeQ = activeQ.eq('company_code', effectiveCompanyCode)
+      onLeaveQ = onLeaveQ.eq('company_code', effectiveCompanyCode)
+      withdrawnQ = withdrawnQ.eq('company_code', effectiveCompanyCode)
+    }
 
-  return {
-    total: totalResult.count ?? 0,
-    active: activeResult.count ?? 0,
-    onLeave: onLeaveResult.count ?? 0,
-    withdrawn: withdrawnResult.count ?? 0,
+    const [totalResult, activeResult, onLeaveResult, withdrawnResult] =
+      await Promise.all([totalQ, activeQ, onLeaveQ, withdrawnQ])
+
+    return {
+      total: totalResult.count ?? 0,
+      active: activeResult.count ?? 0,
+      onLeave: onLeaveResult.count ?? 0,
+      withdrawn: withdrawnResult.count ?? 0,
+    }
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { total: 0, active: 0, onLeave: 0, withdrawn: 0 }
+    }
+    console.error('getMemberStats error:', err)
+    return { total: 0, active: 0, onLeave: 0, withdrawn: 0 }
   }
 }

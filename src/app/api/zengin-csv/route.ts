@@ -16,6 +16,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Admin role check
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profile?.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'この操作には管理者権限が必要です' },
+        { status: 403 },
+      )
+    }
+
     // Parse request body
     const body = await request.json()
     const { paymentIds } = body as { paymentIds?: string[] }
@@ -95,7 +109,7 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error('全銀CSV生成中にエラーが発生しました:', err)
     return NextResponse.json(
-      { error: '全銀CSV生成中にエラーが発生しました' },
+      { error: 'サーバーエラーが発生しました' },
       { status: 500 },
     )
   }

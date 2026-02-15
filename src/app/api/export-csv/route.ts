@@ -196,6 +196,20 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Admin role check
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profile?.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'この操作には管理者権限が必要です' },
+        { status: 403 },
+      )
+    }
+
     // Parse query params
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type') as ExportType | null
@@ -265,7 +279,7 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error('CSVエクスポート中にエラーが発生しました:', err)
     return NextResponse.json(
-      { error: 'CSVエクスポート中にエラーが発生しました' },
+      { error: 'サーバーエラーが発生しました' },
       { status: 500 },
     )
   }

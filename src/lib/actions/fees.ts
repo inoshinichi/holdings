@@ -1,8 +1,9 @@
 'use server'
 
-import { createServerSupabaseClient } from '@/lib/supabase/server'
 import type { MonthlyFee } from '@/types/database'
 import { getFeeAmount } from '@/lib/constants/fee-categories'
+import { requireRole, getClientIP } from '@/lib/actions/auth'
+import { AuthorizationError } from '@/lib/errors'
 
 // ---------------------------------------------------------------------------
 // 1. generateMonthlyFees – 月次会費データの一括生成
@@ -11,7 +12,8 @@ export async function generateMonthlyFees(yearMonth: string): Promise<
   { success: true; companyCount: number } | { success: false; error: string }
 > {
   try {
-    const supabase = await createServerSupabaseClient()
+    const { supabase, user } = await requireRole(['admin'])
+    const ip = await getClientIP()
 
     // Fetch all members who are either 在職中 or 休会中
     const { data: members, error: memberError } = await supabase
@@ -122,17 +124,20 @@ export async function generateMonthlyFees(yearMonth: string): Promise<
     }
 
     // Audit log
-    const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('audit_logs').insert({
-      user_id: user?.id ?? null,
-      user_email: user?.email ?? null,
+      user_id: user.id,
+      user_email: user.email,
       operation_type: '会費データ生成',
       target: `monthly_fees:${yearMonth}`,
       details: `${yearMonth} の会費データを生成しました。対象企業数: ${rows.length}`,
+      ip_address: ip,
     })
 
     return { success: true, companyCount: rows.length }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     return {
       success: false,
       error: err instanceof Error ? err.message : '不明なエラーが発生しました',
@@ -148,32 +153,43 @@ export async function getFees(filters?: {
   companyCode?: string
   status?: string
 }): Promise<MonthlyFee[]> {
-  const supabase = await createServerSupabaseClient()
+  try {
+    const { supabase, profile } = await requireRole(['admin', 'approver'])
 
-  let query = supabase
-    .from('monthly_fees')
-    .select('*')
-    .order('year_month', { ascending: false })
-    .order('company_code', { ascending: true })
+    // approver は自社データのみ閲覧可
+    const effectiveCompanyCode =
+      profile.role === 'approver' ? profile.company_code : filters?.companyCode
 
-  if (filters?.yearMonth) {
-    query = query.eq('year_month', filters.yearMonth)
+    let query = supabase
+      .from('monthly_fees')
+      .select('*')
+      .order('year_month', { ascending: false })
+      .order('company_code', { ascending: true })
+
+    if (filters?.yearMonth) {
+      query = query.eq('year_month', filters.yearMonth)
+    }
+    if (effectiveCompanyCode) {
+      query = query.eq('company_code', effectiveCompanyCode)
+    }
+    if (filters?.status) {
+      query = query.eq('status', filters.status)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('getFees error:', error.message)
+      return []
+    }
+
+    return (data ?? []) as MonthlyFee[]
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return []
+    }
+    throw err
   }
-  if (filters?.companyCode) {
-    query = query.eq('company_code', filters.companyCode)
-  }
-  if (filters?.status) {
-    query = query.eq('status', filters.status)
-  }
-
-  const { data, error } = await query
-
-  if (error) {
-    console.error('getFees error:', error.message)
-    return []
-  }
-
-  return (data ?? []) as MonthlyFee[]
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +201,8 @@ export async function recordFeePayment(
   paymentDate?: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const supabase = await createServerSupabaseClient()
+    const { supabase, user } = await requireRole(['admin'])
+    const ip = await getClientIP()
 
     // Fetch existing fee record
     const { data: fee, error: fetchError } = await supabase
@@ -217,17 +234,20 @@ export async function recordFeePayment(
     }
 
     // Audit log
-    const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('audit_logs').insert({
-      user_id: user?.id ?? null,
-      user_email: user?.email ?? null,
+      user_id: user.id,
+      user_email: user.email,
       operation_type: '入金記録',
       target: `monthly_fees:${id}`,
       details: `入金額: ${amount}, 入金日: ${resolvedPaymentDate}, ステータス: ${status}`,
+      ip_address: ip,
     })
 
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     return {
       success: false,
       error: err instanceof Error ? err.message : '不明なエラーが発生しました',
@@ -242,7 +262,8 @@ export async function markFeesAsInvoiced(
   ids: string[],
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const supabase = await createServerSupabaseClient()
+    const { supabase, user } = await requireRole(['admin'])
+    const ip = await getClientIP()
 
     const today = new Date().toISOString().slice(0, 10)
 
@@ -258,8 +279,21 @@ export async function markFeesAsInvoiced(
       return { success: false, error: updateError.message }
     }
 
+    // Audit log
+    await supabase.from('audit_logs').insert({
+      user_id: user.id,
+      user_email: user.email,
+      operation_type: '請求済更新',
+      target: `monthly_fees:${ids.length}件`,
+      details: `対象ID: ${ids.join(', ')}`,
+      ip_address: ip,
+    })
+
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     return {
       success: false,
       error: err instanceof Error ? err.message : '不明なエラーが発生しました',
@@ -280,50 +314,63 @@ export async function getFeeSummary(yearMonth: string, companyCode?: string): Pr
   paidCompanies: number
   unpaidCompanies: number
 }> {
-  const supabase = await createServerSupabaseClient()
-
-  let query = supabase
-    .from('monthly_fees')
-    .select('*')
-    .eq('year_month', yearMonth)
-
-  if (companyCode) {
-    query = query.eq('company_code', companyCode)
+  const emptyResult = {
+    yearMonth,
+    totalCompanies: 0,
+    totalMembers: 0,
+    totalFee: 0,
+    paidAmount: 0,
+    unpaidAmount: 0,
+    paidCompanies: 0,
+    unpaidCompanies: 0,
   }
 
-  const { data, error } = await query
+  try {
+    const { supabase, profile } = await requireRole(['admin', 'approver'])
 
-  if (error || !data) {
+    // approver は自社データのみ閲覧可
+    const effectiveCompanyCode =
+      profile.role === 'approver' ? profile.company_code : companyCode
+
+    let query = supabase
+      .from('monthly_fees')
+      .select('*')
+      .eq('year_month', yearMonth)
+
+    if (effectiveCompanyCode) {
+      query = query.eq('company_code', effectiveCompanyCode)
+    }
+
+    const { data, error } = await query
+
+    if (error || !data) {
+      return emptyResult
+    }
+
+    const fees = data as MonthlyFee[]
+
+    const totalCompanies = fees.length
+    const totalMembers = fees.reduce((sum, f) => sum + f.member_count, 0)
+    const totalFee = fees.reduce((sum, f) => sum + f.total_fee, 0)
+    const paidAmount = fees.reduce((sum, f) => sum + (f.paid_amount ?? 0), 0)
+    const unpaidAmount = totalFee - paidAmount
+    const paidCompanies = fees.filter((f) => f.status === '入金完了').length
+    const unpaidCompanies = totalCompanies - paidCompanies
+
     return {
       yearMonth,
-      totalCompanies: 0,
-      totalMembers: 0,
-      totalFee: 0,
-      paidAmount: 0,
-      unpaidAmount: 0,
-      paidCompanies: 0,
-      unpaidCompanies: 0,
+      totalCompanies,
+      totalMembers,
+      totalFee,
+      paidAmount,
+      unpaidAmount,
+      paidCompanies,
+      unpaidCompanies,
     }
-  }
-
-  const fees = data as MonthlyFee[]
-
-  const totalCompanies = fees.length
-  const totalMembers = fees.reduce((sum, f) => sum + f.member_count, 0)
-  const totalFee = fees.reduce((sum, f) => sum + f.total_fee, 0)
-  const paidAmount = fees.reduce((sum, f) => sum + (f.paid_amount ?? 0), 0)
-  const unpaidAmount = totalFee - paidAmount
-  const paidCompanies = fees.filter((f) => f.status === '入金完了').length
-  const unpaidCompanies = totalCompanies - paidCompanies
-
-  return {
-    yearMonth,
-    totalCompanies,
-    totalMembers,
-    totalFee,
-    paidAmount,
-    unpaidAmount,
-    paidCompanies,
-    unpaidCompanies,
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return emptyResult
+    }
+    throw err
   }
 }

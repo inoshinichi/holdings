@@ -1,10 +1,11 @@
 'use server'
 
-import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { APPLICATION_STATUS } from '@/lib/constants/application-status'
 import { format } from 'date-fns'
 import type { Application } from '@/types/database'
 import { createNotification } from '@/lib/actions/notifications'
+import { requireRole, getClientIP } from '@/lib/actions/auth'
+import { AuthorizationError } from '@/lib/errors'
 
 // ---------------------------------------------------------------------------
 // 1. 各社承認 (Company-level approval)
@@ -14,17 +15,9 @@ export async function approveByCompany(
   comment?: string
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const supabase = await createServerSupabaseClient()
-
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return { success: false, error: '認証エラー: ログインしてください' }
-    }
-    const email = user.email ?? ''
+    const { supabase, user, profile } = await requireRole(['admin', 'approver'])
+    const ip = await getClientIP()
+    const email = user.email
 
     // Get application and verify status
     const { data: application, error: fetchError } = await supabase
@@ -35,6 +28,11 @@ export async function approveByCompany(
 
     if (fetchError || !application) {
       return { success: false, error: '申請が見つかりません' }
+    }
+
+    // If approver: check application.company_code matches own company_code
+    if (profile.role === 'approver' && application.company_code !== profile.company_code) {
+      return { success: false, error: 'この会社のデータにアクセスする権限がありません' }
     }
 
     if (application.status !== APPLICATION_STATUS.PENDING) {
@@ -64,6 +62,7 @@ export async function approveByCompany(
     await supabase.from('audit_logs').insert({
       user_email: email,
       user_id: user.id,
+      ip_address: ip,
       operation_type: '各社承認',
       target: applicationId,
       details: comment
@@ -91,6 +90,9 @@ export async function approveByCompany(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '不明なエラー'
     return { success: false, error: message }
   }
@@ -105,17 +107,9 @@ export async function approveByHQ(
   finalAmount?: number
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const supabase = await createServerSupabaseClient()
-
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return { success: false, error: '認証エラー: ログインしてください' }
-    }
-    const email = user.email ?? ''
+    const { supabase, user } = await requireRole(['admin'])
+    const ip = await getClientIP()
+    const email = user.email
 
     // Get application and verify status
     const { data: application, error: fetchError } = await supabase
@@ -167,7 +161,7 @@ export async function approveByHQ(
       .single()
 
     if (memberError) {
-      // Bank details fetch failed but approval already succeeded — log warning
+      // Bank details fetch failed but approval already succeeded -- log warning
       console.warn(
         `会員の口座情報取得に失敗: ${memberError.message}`
       )
@@ -206,6 +200,7 @@ export async function approveByHQ(
     await supabase.from('audit_logs').insert({
       user_email: email,
       user_id: user.id,
+      ip_address: ip,
       operation_type: '本部承認',
       target: applicationId,
       details: comment
@@ -233,6 +228,9 @@ export async function approveByHQ(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '不明なエラー'
     return { success: false, error: message }
   }
@@ -247,17 +245,9 @@ export async function rejectApplication(
   level?: 'company' | 'hq'
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const supabase = await createServerSupabaseClient()
-
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return { success: false, error: '認証エラー: ログインしてください' }
-    }
-    const email = user.email ?? ''
+    const { supabase, user, profile } = await requireRole(['admin', 'approver'])
+    const ip = await getClientIP()
+    const email = user.email
 
     // Get application
     const { data: application, error: fetchError } = await supabase
@@ -268,6 +258,11 @@ export async function rejectApplication(
 
     if (fetchError || !application) {
       return { success: false, error: '申請が見つかりません' }
+    }
+
+    // If approver: check application.company_code matches own company_code
+    if (profile.role === 'approver' && application.company_code !== profile.company_code) {
+      return { success: false, error: 'この会社のデータにアクセスする権限がありません' }
     }
 
     // Build the comment with prefix
@@ -293,6 +288,7 @@ export async function rejectApplication(
     await supabase.from('audit_logs').insert({
       user_email: email,
       user_id: user.id,
+      ip_address: ip,
       operation_type: '差戻し',
       target: applicationId,
       details: `${level === 'hq' ? '本部' : '各社'}差戻し 理由: ${reason}`,
@@ -318,6 +314,9 @@ export async function rejectApplication(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '不明なエラー'
     return { success: false, error: message }
   }
@@ -331,17 +330,9 @@ export async function markAsPaid(
   paymentDate?: string
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const supabase = await createServerSupabaseClient()
-
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return { success: false, error: '認証エラー: ログインしてください' }
-    }
-    const email = user.email ?? ''
+    const { supabase, user } = await requireRole(['admin'])
+    const ip = await getClientIP()
+    const email = user.email
 
     // Get application and verify status
     const { data: application, error: fetchError } = await supabase
@@ -379,6 +370,7 @@ export async function markAsPaid(
     await supabase.from('audit_logs').insert({
       user_email: email,
       user_id: user.id,
+      ip_address: ip,
       operation_type: '支払完了',
       target: applicationId,
       details: `支払完了 支払日: ${completedDate}`,
@@ -404,6 +396,9 @@ export async function markAsPaid(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { success: false, error: err.message }
+    }
     const message = err instanceof Error ? err.message : '不明なエラー'
     return { success: false, error: message }
   }
@@ -417,7 +412,12 @@ export async function getPendingApprovals(
   companyCode?: string
 ): Promise<Application[]> {
   try {
-    const supabase = await createServerSupabaseClient()
+    const { supabase, profile } = await requireRole(['admin', 'approver'])
+
+    // If approver: force companyCode to own company
+    const effectiveCompanyCode = profile.role === 'approver'
+      ? (profile.company_code ?? undefined)
+      : companyCode
 
     // Determine which status to filter on
     const targetStatus =
@@ -430,8 +430,8 @@ export async function getPendingApprovals(
       .select('*')
       .eq('status', targetStatus)
 
-    if (companyCode) {
-      query = query.eq('company_code', companyCode)
+    if (effectiveCompanyCode) {
+      query = query.eq('company_code', effectiveCompanyCode)
     }
 
     query = query.order('application_date', { ascending: true })
@@ -445,6 +445,9 @@ export async function getPendingApprovals(
 
     return (data ?? []) as Application[]
   } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return []
+    }
     console.error('承認待ち一覧取得エラー:', err)
     return []
   }

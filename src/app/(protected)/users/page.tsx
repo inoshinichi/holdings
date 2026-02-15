@@ -75,8 +75,12 @@ export default function UsersPage() {
       setError('メールアドレスとパスワードは必須です')
       return
     }
-    if (createPassword.length < 6) {
-      setError('パスワードは6文字以上にしてください')
+    if (createPassword.length < 8) {
+      setError('パスワードは8文字以上にしてください')
+      return
+    }
+    if (!/[A-Z]/.test(createPassword) || !/[a-z]/.test(createPassword) || !/[0-9]/.test(createPassword)) {
+      setError('パスワードには大文字・小文字・数字を含めてください')
       return
     }
 
@@ -135,8 +139,12 @@ export default function UsersPage() {
 
   function handleResetPassword() {
     if (!resetId || !newPassword) return
-    if (newPassword.length < 6) {
-      setError('パスワードは6文字以上にしてください')
+    if (newPassword.length < 8) {
+      setError('パスワードは8文字以上にしてください')
+      return
+    }
+    if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      setError('パスワードには大文字・小文字・数字を含めてください')
       return
     }
     setError('')
@@ -190,7 +198,7 @@ export default function UsersPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">パスワード *</label>
-              <input type="text" className={inputClass} value={createPassword} onChange={e => setCreatePassword(e.target.value)} placeholder="6文字以上" />
+              <input type="password" className={inputClass} value={createPassword} onChange={e => setCreatePassword(e.target.value)} placeholder="8文字以上（大文字・小文字・数字を含む）" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">表示名</label>
@@ -255,7 +263,7 @@ export default function UsersPage() {
           <div className="flex gap-2 items-end">
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-700 mb-1">新しいパスワード</label>
-              <input type="text" className={inputClass} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="6文字以上" />
+              <input type="password" className={inputClass} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="8文字以上（大文字・小文字・数字を含む）" />
             </div>
             <button
               onClick={handleResetPassword}
