@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import type { UserRole } from '@/types/database'
 import {
   Home, Users, UserPlus, FileText, FilePlus, CheckSquare,
-  DollarSign, CreditCard, BarChart3, Database, User, Shield
+  DollarSign, CreditCard, BarChart3, Database, User, Shield, GitBranch
 } from 'lucide-react'
 
 interface NavItem {
@@ -16,16 +16,17 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/dashboard', label: 'ホーム', icon: Home, roles: ['admin', 'approver', 'member'] },
+  { href: '/dashboard', label: 'ホーム', icon: Home, roles: ['admin', 'approver'] },
   { href: '/mypage', label: 'マイページ', icon: User, roles: ['admin', 'approver', 'member'] },
+  { href: '/applications/new', label: '新規申請', icon: FilePlus, roles: ['admin', 'approver', 'member'] },
   { href: '/members', label: '会員一覧', icon: Users, roles: ['admin'] },
   { href: '/members/new', label: '会員登録', icon: UserPlus, roles: ['admin'] },
   { href: '/applications', label: '申請一覧', icon: FileText, roles: ['admin', 'approver'] },
-  { href: '/applications/new', label: '新規申請', icon: FilePlus, roles: ['admin', 'approver'] },
   { href: '/approvals', label: '承認待ち', icon: CheckSquare, roles: ['admin', 'approver'] },
   { href: '/fees', label: '会費管理', icon: DollarSign, roles: ['admin'] },
   { href: '/payments', label: '支払管理', icon: CreditCard, roles: ['admin'] },
   { href: '/statistics', label: '統計', icon: BarChart3, roles: ['admin'] },
+  { href: '/workflow', label: '承認ワークフロー', icon: GitBranch, roles: ['admin'] },
   { href: '/master', label: 'マスター管理', icon: Database, roles: ['admin'] },
   { href: '/users', label: 'ユーザー管理', icon: Shield, roles: ['admin'] },
 ]
@@ -47,7 +48,7 @@ export function Sidebar({ role }: { role: UserRole }) {
         {filteredItems.map(item => {
           const Icon = item.icon
           const isActive = pathname === item.href ||
-            (item.href !== '/dashboard' && pathname.startsWith(item.href))
+            (item.href !== '/dashboard' && item.href !== '/mypage' && pathname.startsWith(item.href))
           return (
             <li key={item.href}>
               <Link

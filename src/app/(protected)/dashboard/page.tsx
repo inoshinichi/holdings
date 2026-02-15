@@ -18,6 +18,11 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single()
 
+  // Member role: redirect to mypage (their combined home)
+  if (profile?.role === 'member') {
+    redirect('/mypage')
+  }
+
   const { count: memberCount } = await supabase
     .from('members')
     .select('*', { count: 'exact', head: true })

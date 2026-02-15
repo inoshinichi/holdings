@@ -7,7 +7,7 @@ import { formatCurrency } from '@/lib/utils/format'
 import { formatDate } from '@/lib/utils/date'
 import type { UserProfile } from '@/types/database'
 import Link from 'next/link'
-import { User, Building2, Calendar, CreditCard, Tag, FileText, Shield, CheckSquare, Users as UsersIcon } from 'lucide-react'
+import { User, Building2, Calendar, CreditCard, Tag, FileText, FilePlus, Shield, CheckSquare, Users as UsersIcon } from 'lucide-react'
 
 export default async function MyPage() {
   const supabase = await createServerSupabaseClient()
@@ -154,7 +154,16 @@ export default async function MyPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold text-gray-800">マイページ</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-gray-800">マイページ</h2>
+        <Link
+          href="/applications/new"
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition"
+        >
+          <FilePlus className="w-4 h-4" />
+          新規申請
+        </Link>
+      </div>
 
       {/* Member info card */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
