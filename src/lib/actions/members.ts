@@ -5,6 +5,7 @@ import type { Member, FeeCategory } from '@/types/database'
 import { getFeeAmount } from '@/lib/constants/fee-categories'
 import { requireAuth, requireRole, getClientIP } from '@/lib/actions/auth'
 import { AuthorizationError } from '@/lib/errors'
+import { encrypt, decryptBankFields } from '@/lib/encryption'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,7 +108,7 @@ export async function getMembers(
       return []
     }
 
-    return (data ?? []) as Member[]
+    return ((data ?? []) as Member[]).map(m => decryptBankFields(m, 'members'))
   } catch (err) {
     if (err instanceof AuthorizationError) {
       return []
@@ -152,7 +153,7 @@ export async function getMember(memberId: string, companyCode?: string): Promise
       return null
     }
 
-    return data as Member
+    return decryptBankFields(data as Member, 'members')
   } catch (err) {
     if (err instanceof AuthorizationError) {
       return null
@@ -213,13 +214,13 @@ export async function registerMember(
       fee_category: data.feeCategory,
       fee_amount: feeAmount,
       standard_monthly_remuneration: data.standardMonthlyRemuneration ?? null,
-      bank_code: data.bankCode ?? null,
-      bank_name: data.bankName ?? null,
-      branch_code: data.branchCode ?? null,
-      branch_name: data.branchName ?? null,
-      account_type: data.accountType ?? null,
-      account_number: data.accountNumber ?? null,
-      account_holder: data.accountHolder ?? null,
+      bank_code: data.bankCode ? encrypt(data.bankCode) : null,
+      bank_name: data.bankName ? encrypt(data.bankName) : null,
+      branch_code: data.branchCode ? encrypt(data.branchCode) : null,
+      branch_name: data.branchName ? encrypt(data.branchName) : null,
+      account_type: data.accountType ? encrypt(data.accountType) : null,
+      account_number: data.accountNumber ? encrypt(data.accountNumber) : null,
+      account_holder: data.accountHolder ? encrypt(data.accountHolder) : null,
     })
 
     if (insertError) {
@@ -269,9 +270,18 @@ export async function updateMember(
       }
     }
 
+    // 銀行フィールドが含まれる場合は暗号化
+    const BANK_FIELD_KEYS = ['bank_code', 'bank_name', 'branch_code', 'branch_name', 'account_type', 'account_number', 'account_holder']
+    const processedData = { ...data }
+    for (const key of BANK_FIELD_KEYS) {
+      if (key in processedData && typeof processedData[key] === 'string' && processedData[key]) {
+        processedData[key] = encrypt(processedData[key] as string)
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('members')
-      .update(data)
+      .update(processedData)
       .eq('member_id', memberId)
 
     if (updateError) {

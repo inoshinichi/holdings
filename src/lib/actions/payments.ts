@@ -3,6 +3,7 @@
 import type { Payment } from '@/types/database'
 import { requireRole, getClientIP } from '@/lib/actions/auth'
 import { AuthorizationError } from '@/lib/errors'
+import { decryptBankFields } from '@/lib/encryption'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,7 +53,7 @@ export async function getPayments(
       return []
     }
 
-    return (data ?? []) as Payment[]
+    return ((data ?? []) as Payment[]).map(p => decryptBankFields(p, 'payments'))
   } catch (err) {
     if (err instanceof AuthorizationError) {
       return []
@@ -79,7 +80,7 @@ export async function getPendingPayments(): Promise<Payment[]> {
       return []
     }
 
-    return (data ?? []) as Payment[]
+    return ((data ?? []) as Payment[]).map(p => decryptBankFields(p, 'payments'))
   } catch (err) {
     if (err instanceof AuthorizationError) {
       return []

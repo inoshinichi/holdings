@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { generateZenginCSV } from '@/lib/zengin/generator'
 import type { Payment } from '@/types/database'
+import { decryptBankFields } from '@/lib/encryption'
 
 export async function POST(request: NextRequest) {
   try {
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const typedPayments = payments as Payment[]
+    const typedPayments = (payments as Payment[]).map(p => decryptBankFields(p, 'payments'))
 
     // Generate Zengin CSV
     const transferDate = new Date()

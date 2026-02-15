@@ -1,29 +1,29 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { signIn } from '@/lib/actions/login'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [rateLimited, setRateLimited] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    const result = await signIn(email, password)
 
-    if (error) {
-      setError('メールアドレスまたはパスワードが正しくありません')
+    if (!result.success) {
+      setError(result.error ?? 'ログインに失敗しました')
+      if (result.rateLimited) {
+        setRateLimited(true)
+      }
       setLoading(false)
       return
     }
@@ -55,7 +55,8 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={rateLimited}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
               placeholder="example@vt-holdings.co.jp"
             />
           </div>
@@ -70,20 +71,23 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={rateLimited}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-600">{error}</p>
+            <p className={`text-sm ${rateLimited ? 'text-orange-600 font-medium' : 'text-red-600'}`}>
+              {error}
+            </p>
           )}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || rateLimited}
             className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
-            {loading ? 'ログイン中...' : 'ログイン'}
+            {loading ? 'ログイン中...' : rateLimited ? 'ログイン制限中' : 'ログイン'}
           </button>
         </form>
 
