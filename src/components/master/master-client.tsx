@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import type { Company, Approver, BenefitType, AuditLog } from '@/types/database'
-import { upsertCompany, upsertApprover } from '@/lib/actions/master'
+import type { Company, Approver, BenefitType, AuditLog, FeeSetting } from '@/types/database'
+import { upsertCompany, upsertApprover, updateFeeSetting } from '@/lib/actions/master'
 import { formatDateTime } from '@/lib/utils/date'
 import {
-  Building2, UserCheck, Gift, FileText,
+  Building2, UserCheck, Gift, FileText, DollarSign,
   Plus, Pencil, X, Save, Loader2
 } from 'lucide-react'
 
@@ -18,18 +18,20 @@ interface MasterClientProps {
   initialApprovers: Approver[]
   initialBenefitTypes: BenefitType[]
   initialAuditLogs: AuditLog[]
+  initialFeeSettings: FeeSetting[]
 }
 
 // ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
 
-type TabKey = 'companies' | 'approvers' | 'benefits' | 'logs'
+type TabKey = 'companies' | 'approvers' | 'benefits' | 'fees' | 'logs'
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'companies', label: '会社マスター', icon: Building2 },
   { key: 'approvers', label: '承認者マスター', icon: UserCheck },
   { key: 'benefits', label: '給付金マスター', icon: Gift },
+  { key: 'fees', label: '会費設定', icon: DollarSign },
   { key: 'logs', label: '操作ログ', icon: FileText },
 ]
 
@@ -42,6 +44,7 @@ export function MasterClient({
   initialApprovers,
   initialBenefitTypes,
   initialAuditLogs,
+  initialFeeSettings,
 }: MasterClientProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('companies')
 
@@ -87,6 +90,9 @@ export function MasterClient({
       )}
       {activeTab === 'benefits' && (
         <BenefitTypesTab benefitTypes={initialBenefitTypes} />
+      )}
+      {activeTab === 'fees' && (
+        <FeeSettingsTab feeSettings={initialFeeSettings} />
       )}
       {activeTab === 'logs' && (
         <AuditLogsTab logs={initialAuditLogs} />
@@ -940,6 +946,124 @@ function AuditLogsTab({ logs }: { logs: AuditLog[] }) {
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Fee Settings Tab
+// ---------------------------------------------------------------------------
+
+function FeeSettingsTab({ feeSettings }: { feeSettings: FeeSetting[] }) {
+  const [items, setItems] = useState(feeSettings)
+  const [editingCategory, setEditingCategory] = useState<string | null>(null)
+  const [editAmount, setEditAmount] = useState('')
+  const [isPending, startTransition] = useTransition()
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  function startEdit(item: FeeSetting) {
+    setEditingCategory(item.category)
+    setEditAmount(String(item.amount))
+    setMessage(null)
+  }
+
+  function cancelEdit() {
+    setEditingCategory(null)
+    setEditAmount('')
+  }
+
+  function handleSave(category: string) {
+    const amount = parseInt(editAmount, 10)
+    if (isNaN(amount) || amount < 0) {
+      setMessage({ type: 'error', text: '有効な金額を入力してください' })
+      return
+    }
+
+    startTransition(async () => {
+      const result = await updateFeeSetting(category, amount)
+      if (result.success) {
+        setItems(prev => prev.map(i => i.category === category ? { ...i, amount } : i))
+        setEditingCategory(null)
+        setMessage({ type: 'success', text: `${category}の会費を${amount.toLocaleString()}円に更新しました` })
+      } else {
+        setMessage({ type: 'error', text: result.error ?? '更新に失敗しました' })
+      }
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-500">
+        会員区分ごとの月額会費を設定します。変更は次回の会費データ生成から反映されます。
+      </p>
+
+      {message && (
+        <div className={`px-4 py-3 rounded text-sm ${
+          message.type === 'success'
+            ? 'bg-green-50 text-green-700 border border-green-200'
+            : 'bg-red-50 text-red-700 border border-red-200'
+        }`}>
+          {message.text}
+        </div>
+      )}
+
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="px-4 py-3 text-left font-medium text-gray-600">会費区分</th>
+              <th className="px-4 py-3 text-right font-medium text-gray-600">月額（円）</th>
+              <th className="px-4 py-3 text-center font-medium text-gray-600 w-32">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(item => (
+              <tr key={item.category} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="px-4 py-3 text-gray-800 font-medium">{item.category}</td>
+                <td className="px-4 py-3 text-right">
+                  {editingCategory === item.category ? (
+                    <input
+                      type="number"
+                      value={editAmount}
+                      onChange={e => setEditAmount(e.target.value)}
+                      min={0}
+                      className="w-32 px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                    />
+                  ) : (
+                    <span className="text-gray-800 font-medium tabular-nums">
+                      {item.amount.toLocaleString()}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {editingCategory === item.category ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => handleSave(item.category)}
+                        disabled={isPending}
+                        className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50"
+                      >
+                        {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      </button>
+                      <button onClick={cancelEdit} className="p-1 text-gray-400 hover:text-gray-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => startEdit(item)}
+                      className="p-1 text-gray-400 hover:text-blue-600"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )

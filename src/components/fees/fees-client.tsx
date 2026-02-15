@@ -291,13 +291,23 @@ export function FeesClient({ fees, summary, currentYearMonth }: FeesClientProps)
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => openPaymentDialog(fee)}
-                        disabled={fee.status === '入金完了'}
-                        className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        入金記録
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <a
+                          href={`/api/invoice-pdf?feeId=${fee.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition"
+                        >
+                          請求書
+                        </a>
+                        <button
+                          onClick={() => openPaymentDialog(fee)}
+                          disabled={fee.status === '入金完了'}
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          入金記録
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )

@@ -1,7 +1,7 @@
 'use server'
 
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import type { Company, Approver, BenefitType, AuditLog } from '@/types/database'
+import type { Company, Approver, BenefitType, AuditLog, FeeSetting } from '@/types/database'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -178,6 +178,56 @@ export async function getBenefitTypes(): Promise<BenefitType[]> {
   }
 
   return (data ?? []) as BenefitType[]
+}
+
+// ---------------------------------------------------------------------------
+// 会費設定 (Fee Settings)
+// ---------------------------------------------------------------------------
+
+export async function getFeeSettings(): Promise<FeeSetting[]> {
+  const supabase = await createServerSupabaseClient()
+
+  const { data, error } = await supabase
+    .from('fee_settings')
+    .select('*')
+    .order('amount', { ascending: true })
+
+  if (error) {
+    console.error('getFeeSettings error:', error.message)
+    return []
+  }
+
+  return (data ?? []) as FeeSetting[]
+}
+
+export async function updateFeeSetting(
+  category: string,
+  amount: number,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createServerSupabaseClient()
+
+  try {
+    const { error: updateError } = await supabase
+      .from('fee_settings')
+      .update({ amount })
+      .eq('category', category)
+
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+
+    await writeAuditLog(
+      supabase,
+      '会費設定更新',
+      category,
+      `会費区分: ${category}, 金額: ${amount}円`,
+    )
+
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '会費設定の更新に失敗しました'
+    return { success: false, error: message }
+  }
 }
 
 // ---------------------------------------------------------------------------

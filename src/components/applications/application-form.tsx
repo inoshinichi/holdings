@@ -8,7 +8,9 @@ import { calculateBenefit } from '@/lib/calculations/benefit-calculator'
 import { BENEFIT_TYPE_LIST } from '@/lib/constants/benefit-types'
 import { formatCurrency } from '@/lib/utils/format'
 import type { Member, CalculationParams, BenefitCalculationResult } from '@/types/database'
-import { Search, Send, Loader2, CheckCircle2, AlertCircle, Calculator } from 'lucide-react'
+import { uploadAttachment, getAttachments, deleteAttachment } from '@/lib/actions/attachments'
+import type { AttachmentInfo } from '@/lib/actions/attachments'
+import { Search, Send, Loader2, CheckCircle2, AlertCircle, Calculator, Paperclip, Trash2, FileText, Image as ImageIcon } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
 // Dynamic field definitions per benefit type
@@ -290,6 +292,134 @@ function FarewellFields({
 }
 
 // ---------------------------------------------------------------------------
+// Attachment upload component
+// ---------------------------------------------------------------------------
+
+function AttachmentSection({ applicationId }: { applicationId: string }) {
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [attachError, setAttachError] = useState('')
+  const [attachSuccess, setAttachSuccess] = useState('')
+
+  useEffect(() => {
+    getAttachments(applicationId).then(setAttachments)
+  }, [applicationId])
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setAttachError('')
+    setAttachSuccess('')
+    setUploading(true)
+
+    let successCount = 0
+    for (const file of Array.from(files)) {
+      const buffer = await file.arrayBuffer()
+      const result = await uploadAttachment(applicationId, file.name, buffer, file.type)
+      if (result.success) {
+        successCount++
+      } else {
+        setAttachError(result.error)
+        break
+      }
+    }
+
+    if (successCount > 0) {
+      setAttachSuccess(`${successCount}件のファイルをアップロードしました`)
+      const updated = await getAttachments(applicationId)
+      setAttachments(updated)
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  async function handleDelete(path: string) {
+    setAttachError('')
+    setAttachSuccess('')
+    const result = await deleteAttachment(applicationId, path)
+    if (result.success) {
+      setAttachments(prev => prev.filter(a => a.path !== path))
+    } else {
+      setAttachError(result.error ?? '削除に失敗しました')
+    }
+  }
+
+  function isImage(name: string) {
+    return /\.(jpg|jpeg|png)$/i.test(name)
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Paperclip className="w-4 h-4 text-gray-500" />
+        <h4 className="text-sm font-semibold text-gray-700">証明書・添付ファイル</h4>
+      </div>
+      <p className="text-xs text-gray-500">対応形式: JPG, PNG, PDF（最大5MB）</p>
+
+      <label className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition cursor-pointer">
+        <Paperclip className="w-4 h-4" />
+        {uploading ? 'アップロード中...' : 'ファイルを選択'}
+        <input
+          type="file"
+          accept=".jpg,.jpeg,.png,.pdf"
+          multiple
+          onChange={handleFileChange}
+          disabled={uploading}
+          className="hidden"
+        />
+      </label>
+
+      {attachError && (
+        <p className="text-sm text-red-600 flex items-center gap-1">
+          <AlertCircle className="w-4 h-4" />
+          {attachError}
+        </p>
+      )}
+      {attachSuccess && (
+        <p className="text-sm text-green-600 flex items-center gap-1">
+          <CheckCircle2 className="w-4 h-4" />
+          {attachSuccess}
+        </p>
+      )}
+
+      {attachments.length > 0 && (
+        <div className="space-y-2">
+          {attachments.map(att => (
+            <div
+              key={att.path}
+              className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3"
+            >
+              {isImage(att.name) ? (
+                <ImageIcon className="w-5 h-5 text-blue-500 shrink-0" />
+              ) : (
+                <FileText className="w-5 h-5 text-red-500 shrink-0" />
+              )}
+              <a
+                href={att.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 text-sm text-blue-600 hover:underline truncate"
+              >
+                {att.name}
+              </a>
+              <button
+                type="button"
+                onClick={() => handleDelete(att.path)}
+                className="text-gray-400 hover:text-red-600 transition"
+                title="削除"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main form component
 // ---------------------------------------------------------------------------
 
@@ -494,6 +624,11 @@ export function ApplicationForm({ selfMemberId }: { selfMemberId?: string }) {
             <dd className="text-gray-700">{result.benefitResult.calculationDetails}</dd>
           </div>
         </dl>
+        {/* 証明書アップロード */}
+        <div className="mt-6 border-t border-gray-200 pt-6">
+          <AttachmentSection applicationId={result.applicationId} />
+        </div>
+
         <div className="mt-6 flex gap-3">
           <button
             type="button"

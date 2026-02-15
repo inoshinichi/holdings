@@ -144,6 +144,14 @@ export interface Payment {
   created_at: string
 }
 
+export interface FeeSetting {
+  id: string
+  category: string
+  amount: number
+  created_at: string
+  updated_at: string
+}
+
 export interface Approver {
   approver_id: string
   full_name: string

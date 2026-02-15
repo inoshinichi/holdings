@@ -82,12 +82,22 @@ export async function generateMonthlyFees(yearMonth: string): Promise<
       return { success: false, error: deleteError.message }
     }
 
+    // DBから会費設定を取得（フォールバック付き）
+    const { data: feeSettingsData } = await supabase
+      .from('fee_settings')
+      .select('category, amount')
+    const feeMap: Record<string, number> = {}
+    for (const fs of feeSettingsData ?? []) {
+      feeMap[fs.category as string] = fs.amount as number
+    }
+    const getAmount = (cat: string) => feeMap[cat] ?? getFeeAmount(cat)
+
     // Build rows to insert
     const rows = Array.from(companyMap.entries()).map(([companyCode, c]) => {
       const totalFee =
-        c.general_count * getFeeAmount('一般社員') +
-        c.chief_count * getFeeAmount('係長以上') +
-        c.manager_count * getFeeAmount('部長職以上')
+        c.general_count * getAmount('一般社員') +
+        c.chief_count * getAmount('係長以上') +
+        c.manager_count * getAmount('部長職以上')
 
       return {
         year_month: yearMonth,

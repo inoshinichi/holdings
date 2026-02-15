@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { getApplication } from '@/lib/actions/applications'
+import { getAttachments, uploadAttachment, deleteAttachment } from '@/lib/actions/attachments'
+import type { AttachmentInfo } from '@/lib/actions/attachments'
 import { formatDate } from '@/lib/utils/date'
 import { formatCurrency } from '@/lib/utils/format'
 import { getStatusLabel, getStatusColor } from '@/lib/constants/application-status'
 import { useParams } from 'next/navigation'
 import type { Application } from '@/types/database'
+import { Paperclip, Trash2, FileText, Image as ImageIcon, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 export default function ApplicationDetailPage() {
   const params = useParams()
@@ -14,15 +17,67 @@ export default function ApplicationDetailPage() {
 
   const [app, setApp] = useState<Application | null>(null)
   const [loading, setLoading] = useState(true)
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [attachError, setAttachError] = useState('')
+  const [attachSuccess, setAttachSuccess] = useState('')
 
   useEffect(() => {
     async function load() {
-      const data = await getApplication(applicationId)
+      const [data, files] = await Promise.all([
+        getApplication(applicationId),
+        getAttachments(applicationId),
+      ])
       setApp(data)
+      setAttachments(files)
       setLoading(false)
     }
     load()
   }, [applicationId])
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setAttachError('')
+    setAttachSuccess('')
+    setUploading(true)
+
+    let successCount = 0
+    for (const file of Array.from(files)) {
+      const buffer = await file.arrayBuffer()
+      const result = await uploadAttachment(applicationId, file.name, buffer, file.type)
+      if (result.success) {
+        successCount++
+      } else {
+        setAttachError(result.error)
+        break
+      }
+    }
+
+    if (successCount > 0) {
+      setAttachSuccess(`${successCount}件のファイルをアップロードしました`)
+      const updated = await getAttachments(applicationId)
+      setAttachments(updated)
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  async function handleDeleteAttachment(path: string) {
+    setAttachError('')
+    setAttachSuccess('')
+    const result = await deleteAttachment(applicationId, path)
+    if (result.success) {
+      setAttachments(prev => prev.filter(a => a.path !== path))
+    } else {
+      setAttachError(result.error ?? '削除に失敗しました')
+    }
+  }
+
+  function isImage(name: string) {
+    return /\.(jpg|jpeg|png)$/i.test(name)
+  }
 
   if (loading) {
     return <div className="text-center py-12 text-gray-500">読み込み中...</div>
@@ -172,6 +227,82 @@ export default function ApplicationDetailPage() {
           </div>
         </div>
       )}
+
+      {/* 添付ファイル */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <Paperclip className="w-5 h-5" />
+          証明書・添付ファイル
+        </h2>
+
+        <div className="space-y-4">
+          {/* Upload area */}
+          <div className="flex items-center gap-3">
+            <label className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition cursor-pointer">
+              <Paperclip className="w-4 h-4" />
+              {uploading ? 'アップロード中...' : 'ファイルを追加'}
+              <input
+                type="file"
+                accept=".jpg,.jpeg,.png,.pdf"
+                multiple
+                onChange={handleFileUpload}
+                disabled={uploading}
+                className="hidden"
+              />
+            </label>
+            <span className="text-xs text-gray-500">対応形式: JPG, PNG, PDF（最大5MB）</span>
+          </div>
+
+          {attachError && (
+            <p className="text-sm text-red-600 flex items-center gap-1">
+              <AlertCircle className="w-4 h-4" />
+              {attachError}
+            </p>
+          )}
+          {attachSuccess && (
+            <p className="text-sm text-green-600 flex items-center gap-1">
+              <CheckCircle2 className="w-4 h-4" />
+              {attachSuccess}
+            </p>
+          )}
+
+          {/* File list */}
+          {attachments.length === 0 ? (
+            <p className="text-sm text-gray-400">添付ファイルはありません</p>
+          ) : (
+            <div className="space-y-2">
+              {attachments.map(att => (
+                <div
+                  key={att.path}
+                  className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3"
+                >
+                  {isImage(att.name) ? (
+                    <ImageIcon className="w-5 h-5 text-blue-500 shrink-0" />
+                  ) : (
+                    <FileText className="w-5 h-5 text-red-500 shrink-0" />
+                  )}
+                  <a
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 text-sm text-blue-600 hover:underline truncate"
+                  >
+                    {att.name}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteAttachment(att.path)}
+                    className="text-gray-400 hover:text-red-600 transition"
+                    title="削除"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
