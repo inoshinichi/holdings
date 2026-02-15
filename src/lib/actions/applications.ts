@@ -46,20 +46,24 @@ interface ApplicationStats {
 async function generateApplicationId(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>
 ): Promise<string> {
-  const today = format(new Date(), 'yyyyMMdd')
+  const now = new Date()
+  const today = format(now, 'yyyyMMdd')
   const prefix = `AP${today}`
 
-  const { data } = await supabase
+  // Use service role client to count all applications (bypasses RLS)
+  const { createClient } = await import('@supabase/supabase-js')
+  const adminClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+
+  const { count } = await adminClient
     .from('applications')
-    .select('application_id')
+    .select('*', { count: 'exact', head: true })
     .like('application_id', `${prefix}%`)
-    .order('application_id', { ascending: false })
-    .limit(1)
 
-  if (!data || data.length === 0) return `${prefix}0001`
-
-  const lastSeq = parseInt(data[0].application_id.slice(-4), 10)
-  return `${prefix}${String(lastSeq + 1).padStart(4, '0')}`
+  const seq = (count ?? 0) + 1
+  return `${prefix}${String(seq).padStart(4, '0')}`
 }
 
 // ---------------------------------------------------------------------------
@@ -154,48 +158,66 @@ export async function createApplication(
       typedMember
     )
 
-    // 3. 申請IDを生成
-    const applicationId = await generateApplicationId(supabase)
-
-    // 4. 申請レコードを挿入
+    // 3. 申請IDを生成（重複時はリトライ）
     const now = new Date().toISOString()
     const applicationDate = format(new Date(), 'yyyy-MM-dd')
     const benefitTypeName = getBenefitTypeName(input.benefitTypeCode)
 
-    const { error: insertError } = await supabase
-      .from('applications')
-      .insert({
-        application_id: applicationId,
-        application_date: applicationDate,
-        member_id: typedMember.member_id,
-        member_name: `${typedMember.last_name} ${typedMember.first_name}`,
-        company_code: typedMember.company_code,
-        company_name: typedMember.company_name,
-        benefit_type_code: input.benefitTypeCode,
-        benefit_type_name: benefitTypeName,
-        application_content: input.applicationContent ?? null,
-        attachments: null,
-        calculation_base_date: applicationDate,
-        membership_years: benefitResult.membershipYears ?? null,
-        standard_monthly_remuneration: benefitResult.standardMonthlyRemuneration ?? null,
-        calculated_amount: benefitResult.amount,
-        final_amount: benefitResult.amount,
-        status: APPLICATION_STATUS.PENDING,
-        company_approver: null,
-        company_approval_date: null,
-        company_comment: null,
-        hq_approver: null,
-        hq_approval_date: null,
-        hq_comment: null,
-        scheduled_payment_date: null,
-        payment_completed_date: null,
-        created_at: now,
-        updated_at: now,
-      })
+    let applicationId = ''
+    let insertError = null
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      applicationId = await generateApplicationId(supabase)
+
+      const { error } = await supabase
+        .from('applications')
+        .insert({
+          application_id: applicationId,
+          application_date: applicationDate,
+          member_id: typedMember.member_id,
+          member_name: `${typedMember.last_name} ${typedMember.first_name}`,
+          company_code: typedMember.company_code,
+          company_name: typedMember.company_name,
+          benefit_type_code: input.benefitTypeCode,
+          benefit_type_name: benefitTypeName,
+          application_content: input.applicationContent ?? null,
+          attachments: null,
+          calculation_base_date: applicationDate,
+          membership_years: benefitResult.membershipYears ?? null,
+          standard_monthly_remuneration: benefitResult.standardMonthlyRemuneration ?? null,
+          calculated_amount: benefitResult.amount,
+          final_amount: benefitResult.amount,
+          status: APPLICATION_STATUS.PENDING,
+          company_approver: null,
+          company_approval_date: null,
+          company_comment: null,
+          hq_approver: null,
+          hq_approval_date: null,
+          hq_comment: null,
+          scheduled_payment_date: null,
+          payment_completed_date: null,
+          created_at: now,
+          updated_at: now,
+        })
+
+      if (!error) {
+        insertError = null
+        break
+      }
+
+      if (error.message.includes('duplicate key')) {
+        insertError = error
+        continue
+      }
+
+      // Other error - don't retry
+      console.error('申請の作成に失敗しました:', error.message)
+      return { success: false, error: `申請の作成に失敗しました: ${error.message}` }
+    }
 
     if (insertError) {
       console.error('申請の作成に失敗しました:', insertError.message)
-      return { success: false, error: `申請の作成に失敗しました: ${insertError.message}` }
+      return { success: false, error: '申請IDの生成に失敗しました。再度お試しください。' }
     }
 
     // 5. 監査ログを記録
